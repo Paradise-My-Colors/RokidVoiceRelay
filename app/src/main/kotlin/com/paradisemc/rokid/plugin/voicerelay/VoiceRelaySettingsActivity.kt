@@ -11,6 +11,7 @@ import android.view.ViewGroup
 import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.ScrollView
+import android.widget.Switch
 import android.widget.TextView
 import com.paradisemc.rokid.plugin.voicerelay.telegram.TelegramAuthStage
 import com.paradisemc.rokid.plugin.voicerelay.telegram.TelegramClientManager
@@ -35,7 +36,7 @@ class VoiceRelaySettingsActivity : Activity() {
         setContentView(scroll)
 
         content.addView(text("Rokid Voice Relay", 26f, true))
-        content.addView(text("Prototype v0.4 · Telegram voice-note sending", 15f, false))
+        content.addView(text("Prototype v0.5 · phone-aware HUD filters", 15f, false))
         spacer(content, 20)
 
         content.addView(text("Telegram", 19f, true))
@@ -52,6 +53,40 @@ class VoiceRelaySettingsActivity : Activity() {
         status = text("", 15f, true)
         content.addView(status)
 
+        spacer(content, 10)
+        content.addView(text("Glasses notification filters", 18f, true))
+        content.addView(
+            toggle(
+                "Keep glasses quiet when phone is Silent",
+                NotificationDisplayPreferences.respectPhoneSilent(this),
+            ) { enabled ->
+                NotificationDisplayPreferences.setRespectPhoneSilent(this, enabled)
+            },
+        )
+        content.addView(
+            text(
+                "Enabled by default. Silent ringer mode prevents the incoming HUD popup and prevents Voice Relay from waking the glasses.",
+                13f,
+                false,
+            ),
+        )
+
+        content.addView(
+            toggle(
+                "Hide HUD notifications while phone is unlocked",
+                NotificationDisplayPreferences.hideWhenPhoneUnlocked(this),
+            ) { enabled ->
+                NotificationDisplayPreferences.setHideWhenPhoneUnlocked(this, enabled)
+            },
+        )
+        content.addView(
+            text(
+                "When enabled, messages arriving while the phone screen is on and unlocked stay in the Voice Relay inbox but are not shown on the glasses.",
+                13f,
+                false,
+            ),
+        )
+
         content.addView(
             button("Open Android notification access") {
                 startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
@@ -59,7 +94,7 @@ class VoiceRelaySettingsActivity : Activity() {
         )
 
         content.addView(
-            button("Send test message to glasses") {
+            button("Send test message to glasses (ignores filters)") {
                 testRuntime?.shutdown()
                 testRuntime = VoiceRelayNoticeRuntime(applicationContext)
                 testRuntime?.show(
@@ -127,6 +162,13 @@ class VoiceRelaySettingsActivity : Activity() {
         status.text = buildString {
             append("Notification access: $grant\nListener: $listener")
             append("\nPending inbox: ${inbox.size}")
+            append(
+                "\nPhone state: " + when {
+                    NotificationDisplayPreferences.isPhoneSilent(this@VoiceRelaySettingsActivity) -> "SILENT"
+                    NotificationDisplayPreferences.isPhoneUnlockedAndInteractive(this@VoiceRelaySettingsActivity) -> "UNLOCKED"
+                    else -> "relay allowed"
+                },
+            )
             if (capture != null) {
                 append("\nLast captured: ${capture.app} · ${capture.sender}")
                 append("\nPackage: ${capture.packageName ?: "unknown"}")
@@ -215,6 +257,19 @@ class VoiceRelaySettingsActivity : Activity() {
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT,
             ).apply { topMargin = dp(8) }
+        }
+
+    @Suppress("DEPRECATION")
+    private fun toggle(label: String, checked: Boolean, onChanged: (Boolean) -> Unit): Switch =
+        Switch(this).apply {
+            text = label
+            isChecked = checked
+            setPadding(0, dp(6), 0, dp(2))
+            setOnCheckedChangeListener { _, value -> onChanged(value) }
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+            )
         }
 
     private fun spacer(parent: LinearLayout, heightDp: Int) {
