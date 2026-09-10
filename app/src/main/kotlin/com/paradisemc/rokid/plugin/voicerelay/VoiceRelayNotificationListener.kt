@@ -83,6 +83,14 @@ class VoiceRelayNotificationListener : NotificationListenerService() {
             text = text,
         )
         PendingMessageStore.setLastCaptured(this, message)
+
+        // Keep suppressed messages available in the Voice Relay inbox, but do
+        // not connect to Nexus, wake the glasses, or update an active HUD card.
+        if (!NotificationDisplayPreferences.shouldShowOnGlasses(this)) {
+            PendingMessageStore.put(this, message)
+            return
+        }
+
         runtime.show(message)
     }
 
