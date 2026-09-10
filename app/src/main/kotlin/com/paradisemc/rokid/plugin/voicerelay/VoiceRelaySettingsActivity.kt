@@ -12,9 +12,13 @@ import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
+import com.paradisemc.rokid.plugin.voicerelay.telegram.TelegramAuthStage
+import com.paradisemc.rokid.plugin.voicerelay.telegram.TelegramClientManager
+import com.paradisemc.rokid.plugin.voicerelay.telegram.TelegramSetupActivity
 
 class VoiceRelaySettingsActivity : Activity() {
     private lateinit var status: TextView
+    private lateinit var telegramStatus: TextView
     private lateinit var lastRecording: TextView
     private var player: MediaPlayer? = null
     private var testRuntime: VoiceRelayNoticeRuntime? = null
@@ -31,42 +35,51 @@ class VoiceRelaySettingsActivity : Activity() {
         setContentView(scroll)
 
         content.addView(text("Rokid Voice Relay", 26f, true))
-        content.addView(text("Prototype v0.3 · persistent glasses inbox", 15f, false))
+        content.addView(text("Prototype v0.4 · Telegram voice-note sending", 15f, false))
         spacer(content, 20)
 
-        content.addView(text("What this version adds", 19f, true))
-        content.addView(text(
-            "Incoming Telegram/WhatsApp notifications stay in a pending inbox after the 8-second popup disappears. Open Voice Relay on the glasses to review them and record a reply for the selected conversation. Dismissing the source notification on the phone removes it from the inbox.",
-            15f,
-            false,
-        ))
-        spacer(content, 20)
+        content.addView(text("Telegram", 19f, true))
+        telegramStatus = text("", 15f, true)
+        content.addView(telegramStatus)
+        content.addView(
+            button("Telegram setup / login") {
+                startActivity(Intent(this, TelegramSetupActivity::class.java))
+            },
+        )
 
+        spacer(content, 20)
+        content.addView(text("Notification bridge", 19f, true))
         status = text("", 15f, true)
         content.addView(status)
 
-        content.addView(button("Open Android notification access") {
-            startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
-        })
+        content.addView(
+            button("Open Android notification access") {
+                startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
+            },
+        )
 
-        content.addView(button("Send test message to glasses") {
-            testRuntime?.shutdown()
-            testRuntime = VoiceRelayNoticeRuntime(applicationContext)
-            testRuntime?.show(
-                IncomingMessage(
-                    app = "Test",
-                    sender = "Voice Relay Test",
-                    text = "This test also becomes an inbox item. Tap the microphone action or open Voice Relay later.",
-                    packageName = packageName,
-                    notificationKey = "test-${System.currentTimeMillis()}",
-                ),
-            )
-        })
+        content.addView(
+            button("Send test message to glasses") {
+                testRuntime?.shutdown()
+                testRuntime = VoiceRelayNoticeRuntime(applicationContext)
+                testRuntime?.show(
+                    IncomingMessage(
+                        app = "Test",
+                        sender = "Voice Relay Test",
+                        text = "This test becomes an inbox item. Real Telegram messages can be replied to after Telegram setup.",
+                        packageName = packageName,
+                        notificationKey = "test-${System.currentTimeMillis()}",
+                    ),
+                )
+            },
+        )
 
-        content.addView(button("Open Rokid Nexus") {
-            val launch = packageManager.getLaunchIntentForPackage("com.anezium.rokidbus.phone")
-            if (launch != null) startActivity(launch)
-        })
+        content.addView(
+            button("Open Rokid Nexus") {
+                val launch = packageManager.getLaunchIntentForPackage("com.anezium.rokidbus.phone")
+                if (launch != null) startActivity(launch)
+            },
+        )
 
         spacer(content, 22)
         content.addView(text("Last recording", 19f, true))
@@ -74,29 +87,34 @@ class VoiceRelaySettingsActivity : Activity() {
         content.addView(lastRecording)
 
         content.addView(button("Play last recording") { playLastRecording() })
-        content.addView(button("Open last recording") {
-            val uri = PendingMessageStore.lastRecordingUri(this) ?: return@button
-            runCatching {
-                startActivity(
-                    Intent(Intent.ACTION_VIEW).apply {
-                        setDataAndType(Uri.parse(uri), "audio/wav")
-                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                    },
-                )
-            }
-        })
+        content.addView(
+            button("Open last recording") {
+                val uri = PendingMessageStore.lastRecordingUri(this) ?: return@button
+                runCatching {
+                    startActivity(
+                        Intent(Intent.ACTION_VIEW).apply {
+                            setDataAndType(Uri.parse(uri), "audio/wav")
+                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        },
+                    )
+                }
+            },
+        )
 
         spacer(content, 22)
         content.addView(text("Glasses controls", 19f, true))
-        content.addView(text(
-            "Open Voice Relay in Nexus. Left/Up = previous pending message. Right/Down = next. Tap/center = record voice reply for the selected conversation. During recording, tap again to stop; Back cancels.",
-            15f,
-            false,
-        ))
+        content.addView(
+            text(
+                "Inbox: Left/Up = previous, Right/Down = next, Tap = record. Recording: Tap = stop. Confirmation: Tap = Send, Up/Left = Retake, Back = Cancel. A Telegram inbox item disappears only after Telegram confirms the send.",
+                15f,
+                false,
+            ),
+        )
     }
 
     override fun onResume() {
         super.onResume()
+        TelegramClientManager.get(this).start()
         refreshStatus()
     }
 
@@ -105,6 +123,7 @@ class VoiceRelaySettingsActivity : Activity() {
         val listener = if (PendingMessageStore.listenerConnected(this)) "CONNECTED" else "NOT CONNECTED"
         val capture = PendingMessageStore.lastCaptured(this)
         val inbox = PendingMessageStore.inbox(this)
+
         status.text = buildString {
             append("Notification access: $grant\nListener: $listener")
             append("\nPending inbox: ${inbox.size}")
@@ -117,13 +136,37 @@ class VoiceRelaySettingsActivity : Activity() {
                 append("\nNewest pending: ${inbox.first().app} · ${inbox.first().sender}")
             }
         }
+
+        val tg = TelegramClientManager.get(this).status()
+        telegramStatus.text = buildString {
+            append(
+                when (tg.stage) {
+                    TelegramAuthStage.READY -> "Telegram: CONNECTED"
+                    TelegramAuthStage.NEED_CREDENTIALS -> "Telegram: SETUP REQUIRED"
+                    TelegramAuthStage.NEED_PHONE -> "Telegram: PHONE NUMBER REQUIRED"
+                    TelegramAuthStage.NEED_CODE -> "Telegram: LOGIN CODE REQUIRED"
+                    TelegramAuthStage.NEED_PASSWORD -> "Telegram: 2FA PASSWORD REQUIRED"
+                    TelegramAuthStage.NEED_EMAIL -> "Telegram: EMAIL REQUIRED"
+                    TelegramAuthStage.NEED_EMAIL_CODE -> "Telegram: EMAIL CODE REQUIRED"
+                    TelegramAuthStage.ERROR -> "Telegram: ERROR"
+                    else -> "Telegram: STARTING"
+                },
+            )
+            tg.accountLabel?.let { append("\nAccount: $it") }
+            append("\n${tg.detail}")
+        }
+
         val name = PendingMessageStore.lastRecordingName(this)
         val target = PendingMessageStore.lastRecordingTarget(this)
-        lastRecording.text = if (name == null) "No recording saved yet." else buildString {
-            append(name)
-            if (target != null) {
-                append("\nTarget: ${target.app} · ${target.sender}")
-                target.shortcutId?.let { append("\nShortcut: $it") }
+        lastRecording.text = if (name == null) {
+            "No recording saved yet."
+        } else {
+            buildString {
+                append(name)
+                if (target != null) {
+                    append("\nTarget: ${target.app} · ${target.sender}")
+                    target.shortcutId?.let { append("\nShortcut: $it") }
+                }
             }
         }
     }
