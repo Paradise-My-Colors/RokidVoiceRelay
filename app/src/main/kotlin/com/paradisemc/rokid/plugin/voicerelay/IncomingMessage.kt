@@ -13,8 +13,9 @@ data class IncomingMessage(
     val shortcutId: String? = null,
     val receivedAt: Long = System.currentTimeMillis(),
 ) {
-    fun stableKey(): String = notificationKey
-        ?: shortcutId?.let { "${packageName.orEmpty()}:shortcut:$it" }
+    /** Prefer conversation identity so repeated messages update one inbox row. */
+    fun stableKey(): String = shortcutId?.let { "${packageName.orEmpty()}:shortcut:$it" }
+        ?: notificationKey
         ?: "${packageName.orEmpty()}:${sender.lowercase()}"
 }
 
@@ -94,7 +95,12 @@ object PendingMessageStore {
     fun listenerConnected(context: Context): Boolean =
         prefs(context).getBoolean(KEY_LISTENER_CONNECTED, false)
 
-    fun setLastRecording(context: Context, uri: String, name: String, target: IncomingMessage? = null) {
+    fun setLastRecording(
+        context: Context,
+        uri: String,
+        name: String,
+        target: IncomingMessage? = null,
+    ) {
         val edit = prefs(context).edit()
             .putString(KEY_LAST_RECORDING_URI, uri)
             .putString(KEY_LAST_RECORDING_NAME, name)
@@ -111,6 +117,14 @@ object PendingMessageStore {
 
     fun lastRecordingTarget(context: Context): IncomingMessage? =
         prefs(context).getString(KEY_LAST_RECORDING_TARGET, null)?.let(::fromJson)
+
+    fun clearLastRecording(context: Context) {
+        prefs(context).edit()
+            .remove(KEY_LAST_RECORDING_URI)
+            .remove(KEY_LAST_RECORDING_NAME)
+            .remove(KEY_LAST_RECORDING_TARGET)
+            .apply()
+    }
 
     private fun saveInbox(context: Context, messages: List<IncomingMessage>) {
         val array = JSONArray()
