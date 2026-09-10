@@ -74,6 +74,13 @@ class VoiceRelayNotificationListener : NotificationListenerService() {
         runtime.show(message)
     }
 
+    override fun onNotificationRemoved(sbn: StatusBarNotification?) {
+        sbn ?: return
+        if (appNameForPackage(sbn.packageName) == null) return
+        PendingMessageStore.removeByNotificationKey(this, sbn.key)
+        VoiceRelayPluginService.notifyInboxChanged()
+    }
+
     private fun appNameForPackage(packageName: String): String? = when (packageName) {
         "com.whatsapp" -> "WhatsApp"
         "com.whatsapp.w4b" -> "WhatsApp Business"
