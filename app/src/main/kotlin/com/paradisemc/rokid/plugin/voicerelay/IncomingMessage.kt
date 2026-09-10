@@ -1,6 +1,7 @@
 package com.paradisemc.rokid.plugin.voicerelay
 
 import android.content.Context
+import org.json.JSONArray
 import org.json.JSONObject
 
 data class IncomingMessage(
@@ -11,18 +12,30 @@ data class IncomingMessage(
     val notificationKey: String? = null,
     val shortcutId: String? = null,
     val receivedAt: Long = System.currentTimeMillis(),
-)
+) {
+    fun stableKey(): String = notificationKey
+        ?: shortcutId?.let { "${packageName.orEmpty()}:shortcut:$it" }
+        ?: "${packageName.orEmpty()}:${sender.lowercase()}"
+}
 
 object PendingMessageStore {
     private const val PREFS = "nexus_plugin_voicerelay"
     private const val KEY_PENDING = "pending_message"
+    private const val KEY_INBOX = "message_inbox_v1"
     private const val KEY_LAST_CAPTURED = "last_captured_message"
     private const val KEY_LISTENER_CONNECTED = "listener_connected"
     private const val KEY_LAST_RECORDING_URI = "last_recording_uri"
     private const val KEY_LAST_RECORDING_NAME = "last_recording_name"
     private const val KEY_LAST_RECORDING_TARGET = "last_recording_target"
+    private const val MAX_INBOX = 30
 
+    @Synchronized
     fun put(context: Context, message: IncomingMessage) {
+        val list = inbox(context).toMutableList()
+        val key = message.stableKey()
+        list.removeAll { it.stableKey() == key }
+        list.add(0, message)
+        saveInbox(context, list.take(MAX_INBOX))
         prefs(context).edit().putString(KEY_PENDING, toJson(message).toString()).apply()
     }
 
@@ -31,6 +44,40 @@ object PendingMessageStore {
 
     fun clear(context: Context) {
         prefs(context).edit().remove(KEY_PENDING).apply()
+    }
+
+    @Synchronized
+    fun inbox(context: Context): List<IncomingMessage> {
+        val raw = prefs(context).getString(KEY_INBOX, null) ?: return emptyList()
+        return runCatching {
+            val array = JSONArray(raw)
+            buildList {
+                for (i in 0 until array.length()) {
+                    val item = fromJson(array.getJSONObject(i).toString())
+                    if (item != null) add(item)
+                }
+            }.sortedByDescending { it.receivedAt }
+        }.getOrDefault(emptyList())
+    }
+
+    fun inboxCount(context: Context): Int = inbox(context).size
+
+    @Synchronized
+    fun removeByNotificationKey(context: Context, notificationKey: String?) {
+        if (notificationKey.isNullOrBlank()) return
+        val list = inbox(context).filterNot { it.notificationKey == notificationKey }
+        saveInbox(context, list)
+        val pending = peek(context)
+        if (pending?.notificationKey == notificationKey) clear(context)
+    }
+
+    @Synchronized
+    fun remove(context: Context, message: IncomingMessage?) {
+        message ?: return
+        val key = message.stableKey()
+        saveInbox(context, inbox(context).filterNot { it.stableKey() == key })
+        val pending = peek(context)
+        if (pending?.stableKey() == key) clear(context)
     }
 
     fun setLastCaptured(context: Context, message: IncomingMessage) {
@@ -64,6 +111,12 @@ object PendingMessageStore {
 
     fun lastRecordingTarget(context: Context): IncomingMessage? =
         prefs(context).getString(KEY_LAST_RECORDING_TARGET, null)?.let(::fromJson)
+
+    private fun saveInbox(context: Context, messages: List<IncomingMessage>) {
+        val array = JSONArray()
+        messages.forEach { array.put(toJson(it)) }
+        prefs(context).edit().putString(KEY_INBOX, array.toString()).apply()
+    }
 
     private fun toJson(message: IncomingMessage) = JSONObject()
         .put("app", message.app)
