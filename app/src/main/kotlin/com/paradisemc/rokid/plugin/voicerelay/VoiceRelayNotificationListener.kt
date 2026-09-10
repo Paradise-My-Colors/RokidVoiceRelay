@@ -5,6 +5,8 @@ import android.app.NotificationManager
 import android.content.ComponentName
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
+import com.paradisemc.rokid.plugin.voicerelay.telegram.TelegramClientManager
+import com.paradisemc.rokid.plugin.voicerelay.telegram.TelegramSecureStore
 
 class VoiceRelayNotificationListener : NotificationListenerService() {
 
@@ -12,9 +14,18 @@ class VoiceRelayNotificationListener : NotificationListenerService() {
     private var lastFingerprint: String? = null
     private var lastFingerprintAt: Long = 0L
 
+    override fun onCreate() {
+        super.onCreate()
+        current = this
+    }
+
     override fun onListenerConnected() {
         super.onListenerConnected()
+        current = this
         PendingMessageStore.setListenerState(this, true)
+        if (TelegramSecureStore.hasCredentials(this)) {
+            TelegramClientManager.get(this).start()
+        }
     }
 
     override fun onListenerDisconnected() {
@@ -31,6 +42,7 @@ class VoiceRelayNotificationListener : NotificationListenerService() {
     }
 
     override fun onDestroy() {
+        if (current === this) current = null
         PendingMessageStore.setListenerState(this, false)
         runtime.shutdown()
         super.onDestroy()
@@ -95,5 +107,15 @@ class VoiceRelayNotificationListener : NotificationListenerService() {
         val bundles = extras.getParcelableArray(Notification.EXTRA_MESSAGES) ?: return null
         val messages = Notification.MessagingStyle.Message.getMessagesFromBundleArray(bundles)
         return messages.lastOrNull()?.text?.toString()?.takeIf { it.isNotBlank() }
+    }
+
+    companion object {
+        @Volatile private var current: VoiceRelayNotificationListener? = null
+
+        fun dismissNotification(notificationKey: String?) {
+            if (notificationKey.isNullOrBlank()) return
+            val listener = current ?: return
+            runCatching { listener.cancelNotification(notificationKey) }
+        }
     }
 }
