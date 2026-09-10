@@ -49,12 +49,23 @@ jobs:
               -keyalg RSA -keysize 2048 -validity 10000
           fi
 
+      - name: Fetch pinned TDLib 1.8.65 Android libraries
+        shell: bash
+        run: |
+          curl -L --fail --retry 3 \
+            "https://github.com/up9cloud/android-libtdjson/releases/download/v1.8.65/jniLibs.tar.gz" \
+            -o /tmp/jniLibs.tar.gz
+          echo "eb777d3e7baedeb02871c691b2090daa1bc51baf9215a81bc55bf54edb76df2b  /tmp/jniLibs.tar.gz" | sha256sum -c -
+          rm -rf app/src/main/jniLibs jniLibs
+          tar -xzf /tmp/jniLibs.tar.gz
+          mv jniLibs app/src/main/jniLibs
+
       - name: Build debug APK
         run: gradle :app:assembleDebug --stacktrace
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: RokidVoiceRelay-v0.3-debug
+          name: RokidVoiceRelay-v0.4-debug
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
