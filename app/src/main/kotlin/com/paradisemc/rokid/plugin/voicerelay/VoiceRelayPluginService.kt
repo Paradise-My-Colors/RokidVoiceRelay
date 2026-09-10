@@ -12,6 +12,9 @@ import com.anezium.rokidbus.client.plugin.NexusPluginService
 import com.anezium.rokidbus.client.plugin.NexusSdkResult
 import com.anezium.rokidbus.client.plugin.NexusSurfaceSession
 import com.anezium.rokidbus.shared.plugin.NexusInputEvent
+import com.paradisemc.rokid.plugin.voicerelay.telegram.TelegramAuthStage
+import com.paradisemc.rokid.plugin.voicerelay.telegram.TelegramClientManager
+import com.paradisemc.rokid.plugin.voicerelay.telegram.TelegramVoiceSender
 
 class VoiceRelayPluginService : NexusPluginService() {
 
@@ -22,8 +25,10 @@ class VoiceRelayPluginService : NexusPluginService() {
     private var recordingStarted = false
     private var keepRecordingOnStop = true
     private var offeredMessage: IncomingMessage? = null
+    private var pendingRecording: PublishedRecording? = null
     private var inboxIndex = 0
     private var showingInbox = false
+    private var sending = false
 
     private val safetyStop = Runnable {
         if (audio != null) {
@@ -35,6 +40,7 @@ class VoiceRelayPluginService : NexusPluginService() {
     override fun onCreate() {
         super.onCreate()
         current = this
+        TelegramClientManager.get(this).start()
     }
 
     override fun onDestroy() {
@@ -70,7 +76,24 @@ class VoiceRelayPluginService : NexusPluginService() {
             when (event.keyCode) {
                 KeyEvent.KEYCODE_DPAD_CENTER,
                 KeyEvent.KEYCODE_ENTER -> if (recordingStarted) stopAndSave()
-                KeyEvent.KEYCODE_BACK -> cancelRecording()
+                KeyEvent.KEYCODE_BACK -> cancelActiveRecording()
+            }
+            return
+        }
+
+        if (sending) return
+
+        if (pendingRecording != null) {
+            when (event.keyCode) {
+                KeyEvent.KEYCODE_DPAD_CENTER,
+                KeyEvent.KEYCODE_ENTER -> sendPendingRecording()
+
+                KeyEvent.KEYCODE_DPAD_UP,
+                KeyEvent.KEYCODE_DPAD_LEFT -> retakeRecording()
+
+                KeyEvent.KEYCODE_BACK,
+                KeyEvent.KEYCODE_DPAD_DOWN,
+                KeyEvent.KEYCODE_DPAD_RIGHT -> discardPendingAndReturn()
             }
             return
         }
@@ -114,6 +137,8 @@ class VoiceRelayPluginService : NexusPluginService() {
 
     private fun showInbox() {
         showingInbox = true
+        sending = false
+        pendingRecording = null
         surface = surface ?: nexusSurfaceSession("main")
         val messages = PendingMessageStore.inbox(this)
         if (messages.isEmpty()) {
@@ -124,7 +149,7 @@ class VoiceRelayPluginService : NexusPluginService() {
                     title = "Voice Relay Inbox",
                     lines = listOf(
                         "No pending messages.",
-                        "New Telegram / WhatsApp notifications will appear here after the popup closes.",
+                        telegramStatusLine(),
                     ),
                     footer = "back",
                     handlesBack = true,
@@ -151,6 +176,7 @@ class VoiceRelayPluginService : NexusPluginService() {
 
     private fun beginVoiceRecording() {
         if (audio != null || offeredMessage == null) return
+        pendingRecording = null
         showingInbox = false
         recordingStarted = false
         keepRecordingOnStop = true
@@ -184,19 +210,20 @@ class VoiceRelayPluginService : NexusPluginService() {
                 audio = null
                 recordingStarted = false
 
-                if (keepRecordingOnStop && reason == NexusAudioStopReason.RELEASED && recorder != null) {
+                if (keepRecordingOnStop &&
+                    reason == NexusAudioStopReason.RELEASED &&
+                    recorder != null
+                ) {
                     val published = recorder.finishAndPublish()
                     if (published != null) {
+                        pendingRecording = published
                         PendingMessageStore.setLastRecording(
                             this@VoiceRelayPluginService,
                             published.uri,
                             published.name,
                             offeredMessage,
                         )
-                        showResultCard(
-                            "Voice note saved",
-                            "Target: ${offeredMessage?.app} · ${offeredMessage?.sender}\nTelegram sending is the next step.",
-                        )
+                        showConfirmation()
                     } else {
                         showResultCard("Save failed", "The recording could not be published.")
                     }
@@ -231,7 +258,7 @@ class VoiceRelayPluginService : NexusPluginService() {
         audio?.stop()
     }
 
-    private fun cancelRecording() {
+    private fun cancelActiveRecording() {
         keepRecordingOnStop = false
         audio?.stop()
         wavRecorder?.discard()
@@ -254,6 +281,94 @@ class VoiceRelayPluginService : NexusPluginService() {
         )
     }
 
+    private fun showConfirmation(error: String? = null) {
+        showingInbox = false
+        val target = offeredMessage
+        val recording = pendingRecording ?: return
+        val telegram = TelegramVoiceSender.isTelegram(target)
+        val connected = TelegramClientManager.get(this).isReady()
+
+        val lines = mutableListOf<String>()
+        lines += "To: ${target?.sender.orEmpty().clean(42)}"
+        lines += "Length: ${formatDuration(recording.durationMs)}"
+        when {
+            error != null -> lines += error.clean(180)
+            !telegram -> lines += "WhatsApp sending is not enabled yet."
+            !connected -> lines += "Telegram setup required on phone."
+            else -> lines += "Ready to send as a Telegram voice message."
+        }
+
+        surface = surface ?: nexusSurfaceSession("recording")
+        surface?.showCard(
+            NexusCard(
+                title = "Voice note ready",
+                lines = lines.take(4),
+                footer = if (telegram) {
+                    "tap send · ↑/← retake · back cancel"
+                } else {
+                    "↑/← retake · back cancel"
+                },
+                handlesBack = true,
+            ),
+        )
+    }
+
+    private fun sendPendingRecording() {
+        val target = offeredMessage ?: return
+        val recording = pendingRecording ?: return
+
+        if (!TelegramVoiceSender.isTelegram(target)) {
+            showConfirmation("This build sends Telegram voice notes only.")
+            return
+        }
+
+        sending = true
+        surface?.showCard(
+            NexusCard(
+                title = "Sending…",
+                lines = listOf(
+                    "${target.app} · ${target.sender.clean(42)}",
+                    "Encoding OGG/Opus and sending through Telegram.",
+                ),
+                footer = "please keep Voice Relay open",
+                handlesBack = true,
+            ),
+        )
+
+        TelegramVoiceSender.send(this, target, recording) { result ->
+            main.post {
+                sending = false
+                result.fold(
+                    onSuccess = {
+                        PendingMessageStore.remove(this, target)
+                        VoiceRelayNotificationListener.dismissNotification(target.notificationKey)
+                        pendingRecording = null
+                        offeredMessage = null
+                        showResultCard("Sent", "Voice message sent to ${target.sender.clean(60)}.")
+                        main.postDelayed({ showInbox() }, 1_400L)
+                    },
+                    onFailure = { error ->
+                        showConfirmation(error.message ?: "Telegram send failed.")
+                    },
+                )
+            }
+        }
+    }
+
+    private fun retakeRecording() {
+        pendingRecording?.delete(this)
+        PendingMessageStore.clearLastRecording(this)
+        pendingRecording = null
+        beginVoiceRecording()
+    }
+
+    private fun discardPendingAndReturn() {
+        pendingRecording?.delete(this)
+        PendingMessageStore.clearLastRecording(this)
+        pendingRecording = null
+        showInbox()
+    }
+
     private fun showResultCard(title: String, detail: String) {
         showingInbox = false
         surface = surface ?: nexusSurfaceSession("recording")
@@ -265,6 +380,20 @@ class VoiceRelayPluginService : NexusPluginService() {
                 handlesBack = true,
             ),
         )
+    }
+
+    private fun telegramStatusLine(): String {
+        val status = TelegramClientManager.get(this).status()
+        return when {
+            status.stage == TelegramAuthStage.READY ->
+                "Telegram connected${status.accountLabel?.let { " · $it" }.orEmpty()}."
+            else -> "Telegram setup: ${status.detail}"
+        }.clean(180)
+    }
+
+    private fun formatDuration(durationMs: Long): String {
+        val total = (durationMs / 1000L).coerceAtLeast(0L)
+        return "%d:%02d".format(total / 60L, total % 60L)
     }
 
     private fun humanReason(reason: NexusAudioStopReason): String = when (reason) {
@@ -281,13 +410,14 @@ class VoiceRelayPluginService : NexusPluginService() {
         replace(Regex("[\\r\\n]+"), " ").trim().ifBlank { "Message" }.take(max)
 
     companion object {
-        @Volatile
-        private var current: VoiceRelayPluginService? = null
+        @Volatile private var current: VoiceRelayPluginService? = null
 
         fun notifyInboxChanged() {
             val active = current ?: return
             active.main.post {
-                if (active.showingInbox && active.audio == null) active.showInbox()
+                if (active.showingInbox && active.audio == null && active.pendingRecording == null) {
+                    active.showInbox()
+                }
             }
         }
     }
