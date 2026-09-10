@@ -211,7 +211,7 @@ class TelegramClientManager private constructor(context: Context) {
                         }, 60, TimeUnit.SECONDS)
                     }
                 },
-                onFailure = callback,
+                onFailure = { error -> callback(Result.failure(error)) },
             )
         }
     }
