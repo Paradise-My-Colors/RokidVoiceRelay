@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <uses-permission android:name="android.permission.REQUEST_DELETE_PACKAGES" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+
+    <queries>
+        <intent>
+            <action android:name="com.anezium.rokidbus.action.HUB" />
+        </intent>
+    </queries>
+
+    <application
+        android:allowBackup="false"
+        android:label="@string/app_name"
+        android:supportsRtl="true"
+        android:theme="@android:style/Theme.Material.Light.NoActionBar">
+
+        <activity
+            android:name=".VoiceRelaySettingsActivity"
+            android:exported="true" />
+
+        <service
+            android:name=".VoiceRelayNotificationListener"
+            android:exported="true"
+            android:label="Voice Relay"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
+
+        <service
+            android:name=".VoiceRelayPluginService"
+            android:exported="true"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="glasses-session" />
+            <intent-filter>
+                <action android:name="com.anezium.rokidbus.action.PLUGIN" />
+            </intent-filter>
+            <meta-data
+                android:name="com.anezium.rokidbus.plugin.ID"
+                android:value="voicerelay" />
+            <meta-data
+                android:name="com.anezium.rokidbus.plugin.DISPLAY_NAME"
+                android:value="Voice Relay" />
+            <meta-data
+                android:name="com.anezium.rokidbus.plugin.ICON"
+                android:value="mic" />
+            <meta-data
+                android:name="com.anezium.rokidbus.plugin.API_VERSION"
+                android:value="3" />
+            <meta-data
+                android:name="com.anezium.rokidbus.plugin.CAPABILITIES"
+                android:value="surfaces,microphone" />
+            <meta-data
+                android:name="com.anezium.rokidbus.plugin.RECEIVE_PREFIXES"
+                android:value="/plugin/voicerelay,/system/plugin,/audio" />
+            <meta-data
+                android:name="com.anezium.rokidbus.plugin.SETTINGS_ACTIVITY"
+                android:value=".VoiceRelaySettingsActivity" />
+            <meta-data
+                android:name="com.anezium.rokidbus.plugin.LAUNCHABLE"
+                android:value="true" />
+        </service>
+    </application>
+</manifest>

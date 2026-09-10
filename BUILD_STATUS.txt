@@ -1,0 +1,26 @@
+Rokid Voice Relay v0.1 build status
+==================================
+
+Source status: prototype source prepared and statically inspected.
+APK status: NOT COMPILED in this ChatGPT runtime.
+
+Reason:
+This runtime does not provide the Android SDK / android.jar, Gradle, or Android APK signing tools, and external binary downloads are unavailable. An uncompiled ZIP has therefore not been mislabeled as an APK.
+
+A GitHub Actions workflow is included at:
+.github/workflows/build-apk.yml
+
+It is configured to provision JDK 17 + Android 36 + Gradle and run :app:assembleDebug. The resulting debug APK is uploaded as a workflow artifact.
+
+First hardware test target:
+1. Nexus discovers Voice Relay.
+2. Approve surfaces + microphone.
+3. Enable Android Notification access.
+4. Use Send test message to glasses.
+5. Confirm 8-second wake popup.
+6. Tap Voice note.
+7. Record using Rokid microphone, tap to stop, Back to cancel.
+8. Confirm WAV saved to Music/RokidVoiceRelay.
+
+Known prototype risk:
+Cold-starting the Nexus plugin directly from Android's NotificationListenerService is best-effort in v0.1. If normal test notices work but Telegram/WhatsApp notices fail after Android kills the process, the next revision should copy the current Relay plugin's sanctioned one-shot wake/session behavior.
