@@ -31,12 +31,12 @@ class VoiceRelaySettingsActivity : Activity() {
         setContentView(scroll)
 
         content.addView(text("Rokid Voice Relay", 26f, true))
-        content.addView(text("Prototype v0.2 · notification cold-start + voice recording", 15f, false))
+        content.addView(text("Prototype v0.3 · persistent glasses inbox", 15f, false))
         spacer(content, 20)
 
-        content.addView(text("What this version tests", 19f, true))
+        content.addView(text("What this version adds", 19f, true))
         content.addView(text(
-            "Telegram/WhatsApp notification → 8-second Rokid popup → tap mic → record from the glasses → tap to stop → save WAV in Music/RokidVoiceRelay. It does not send the recording back to the chat yet.",
+            "Incoming Telegram/WhatsApp notifications stay in a pending inbox after the 8-second popup disappears. Open Voice Relay on the glasses to review them and record a reply for the selected conversation. Dismissing the source notification on the phone removes it from the inbox.",
             15f,
             false,
         ))
@@ -56,8 +56,9 @@ class VoiceRelaySettingsActivity : Activity() {
                 IncomingMessage(
                     app = "Test",
                     sender = "Voice Relay Test",
-                    text = "Tap the microphone action within 8 seconds to record a voice note.",
+                    text = "This test also becomes an inbox item. Tap the microphone action or open Voice Relay later.",
                     packageName = packageName,
+                    notificationKey = "test-${System.currentTimeMillis()}",
                 ),
             )
         })
@@ -68,7 +69,7 @@ class VoiceRelaySettingsActivity : Activity() {
         })
 
         spacer(content, 22)
-        content.addView(text("Last test recording", 19f, true))
+        content.addView(text("Last recording", 19f, true))
         lastRecording = text("No recording saved yet.", 14f, false)
         content.addView(lastRecording)
 
@@ -86,13 +87,9 @@ class VoiceRelaySettingsActivity : Activity() {
         })
 
         spacer(content, 22)
-        content.addView(text("Before testing", 19f, true))
+        content.addView(text("Glasses controls", 19f, true))
         content.addView(text(
-            "1. Approve Voice Relay in Rokid Nexus Plugin access.\n" +
-                "2. Grant Surfaces and Microphone.\n" +
-                "3. Enable Voice Relay under Android Notification access.\n" +
-                "4. Wear and connect the glasses.\n" +
-                "5. Use the test button above, then try a real Telegram or WhatsApp message.",
+            "Open Voice Relay in Nexus. Left/Up = previous pending message. Right/Down = next. Tap/center = record voice reply for the selected conversation. During recording, tap again to stop; Back cancels.",
             15f,
             false,
         ))
@@ -100,22 +97,34 @@ class VoiceRelaySettingsActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
+        refreshStatus()
+    }
+
+    private fun refreshStatus() {
         val grant = if (hasNotificationAccess()) "ENABLED" else "NOT ENABLED"
         val listener = if (PendingMessageStore.listenerConnected(this)) "CONNECTED" else "NOT CONNECTED"
         val capture = PendingMessageStore.lastCaptured(this)
+        val inbox = PendingMessageStore.inbox(this)
         status.text = buildString {
             append("Notification access: $grant\nListener: $listener")
+            append("\nPending inbox: ${inbox.size}")
             if (capture != null) {
                 append("\nLast captured: ${capture.app} · ${capture.sender}")
                 append("\nPackage: ${capture.packageName ?: "unknown"}")
                 capture.shortcutId?.let { append("\nConversation shortcut: $it") }
+            }
+            if (inbox.isNotEmpty()) {
+                append("\nNewest pending: ${inbox.first().app} · ${inbox.first().sender}")
             }
         }
         val name = PendingMessageStore.lastRecordingName(this)
         val target = PendingMessageStore.lastRecordingTarget(this)
         lastRecording.text = if (name == null) "No recording saved yet." else buildString {
             append(name)
-            if (target != null) append("\nTarget: ${target.app} · ${target.sender}")
+            if (target != null) {
+                append("\nTarget: ${target.app} · ${target.sender}")
+                target.shortcutId?.let { append("\nShortcut: $it") }
+            }
         }
     }
 
