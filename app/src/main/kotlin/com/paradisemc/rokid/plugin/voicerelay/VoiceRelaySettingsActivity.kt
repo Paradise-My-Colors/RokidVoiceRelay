@@ -17,6 +17,7 @@ class VoiceRelaySettingsActivity : Activity() {
     private lateinit var status: TextView
     private lateinit var lastRecording: TextView
     private var player: MediaPlayer? = null
+    private var testRuntime: VoiceRelayNoticeRuntime? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -30,7 +31,7 @@ class VoiceRelaySettingsActivity : Activity() {
         setContentView(scroll)
 
         content.addView(text("Rokid Voice Relay", 26f, true))
-        content.addView(text("Prototype v0.1 · raw voice-note recording", 15f, false))
+        content.addView(text("Prototype v0.2 · notification cold-start + voice recording", 15f, false))
         spacer(content, 20)
 
         content.addView(text("What this version tests", 19f, true))
@@ -49,12 +50,14 @@ class VoiceRelaySettingsActivity : Activity() {
         })
 
         content.addView(button("Send test message to glasses") {
-            VoiceRelayPluginService.deliverIncoming(
-                this,
+            testRuntime?.shutdown()
+            testRuntime = VoiceRelayNoticeRuntime(applicationContext)
+            testRuntime?.show(
                 IncomingMessage(
                     app = "Test",
                     sender = "Voice Relay Test",
                     text = "Tap the microphone action within 8 seconds to record a voice note.",
+                    packageName = packageName,
                 ),
             )
         })
@@ -97,18 +100,30 @@ class VoiceRelaySettingsActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
-        status.text = if (hasNotificationAccess()) {
-            "Notification access: ENABLED"
-        } else {
-            "Notification access: NOT ENABLED"
+        val grant = if (hasNotificationAccess()) "ENABLED" else "NOT ENABLED"
+        val listener = if (PendingMessageStore.listenerConnected(this)) "CONNECTED" else "NOT CONNECTED"
+        val capture = PendingMessageStore.lastCaptured(this)
+        status.text = buildString {
+            append("Notification access: $grant\nListener: $listener")
+            if (capture != null) {
+                append("\nLast captured: ${capture.app} · ${capture.sender}")
+                append("\nPackage: ${capture.packageName ?: "unknown"}")
+                capture.shortcutId?.let { append("\nConversation shortcut: $it") }
+            }
         }
         val name = PendingMessageStore.lastRecordingName(this)
-        lastRecording.text = name ?: "No recording saved yet."
+        val target = PendingMessageStore.lastRecordingTarget(this)
+        lastRecording.text = if (name == null) "No recording saved yet." else buildString {
+            append(name)
+            if (target != null) append("\nTarget: ${target.app} · ${target.sender}")
+        }
     }
 
     override fun onDestroy() {
         player?.release()
         player = null
+        testRuntime?.shutdown()
+        testRuntime = null
         super.onDestroy()
     }
 

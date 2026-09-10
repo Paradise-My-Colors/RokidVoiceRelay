@@ -29,12 +29,32 @@ jobs:
         with:
           gradle-version: '9.5.1'
 
+      - name: Restore persistent debug signing key
+        uses: actions/cache@v4
+        with:
+          path: ~/.android/debug.keystore
+          key: rokid-voice-relay-debug-signing-v1
+
+      - name: Create debug signing key if missing
+        shell: bash
+        run: |
+          if [ ! -f "$HOME/.android/debug.keystore" ]; then
+            mkdir -p "$HOME/.android"
+            keytool -genkeypair -v \
+              -keystore "$HOME/.android/debug.keystore" \
+              -storepass android \
+              -alias androiddebugkey \
+              -keypass android \
+              -dname "CN=Rokid Voice Relay Dev,O=ParadiseMC,C=DE" \
+              -keyalg RSA -keysize 2048 -validity 10000
+          fi
+
       - name: Build debug APK
         run: gradle :app:assembleDebug --stacktrace
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: RokidVoiceRelay-v0.1-debug
+          name: RokidVoiceRelay-v0.2-debug
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error

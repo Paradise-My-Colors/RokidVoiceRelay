@@ -7,46 +7,53 @@ data class IncomingMessage(
     val app: String,
     val sender: String,
     val text: String,
+    val packageName: String? = null,
+    val notificationKey: String? = null,
+    val shortcutId: String? = null,
     val receivedAt: Long = System.currentTimeMillis(),
 )
 
 object PendingMessageStore {
     private const val PREFS = "nexus_plugin_voicerelay"
     private const val KEY_PENDING = "pending_message"
+    private const val KEY_LAST_CAPTURED = "last_captured_message"
+    private const val KEY_LISTENER_CONNECTED = "listener_connected"
     private const val KEY_LAST_RECORDING_URI = "last_recording_uri"
     private const val KEY_LAST_RECORDING_NAME = "last_recording_name"
+    private const val KEY_LAST_RECORDING_TARGET = "last_recording_target"
 
     fun put(context: Context, message: IncomingMessage) {
-        val json = JSONObject()
-            .put("app", message.app)
-            .put("sender", message.sender)
-            .put("text", message.text)
-            .put("receivedAt", message.receivedAt)
-        prefs(context).edit().putString(KEY_PENDING, json.toString()).apply()
+        prefs(context).edit().putString(KEY_PENDING, toJson(message).toString()).apply()
     }
 
-    fun peek(context: Context): IncomingMessage? {
-        val raw = prefs(context).getString(KEY_PENDING, null) ?: return null
-        return runCatching {
-            val json = JSONObject(raw)
-            IncomingMessage(
-                app = json.optString("app", "Message"),
-                sender = json.optString("sender", "Unknown"),
-                text = json.optString("text", ""),
-                receivedAt = json.optLong("receivedAt", System.currentTimeMillis()),
-            )
-        }.getOrNull()
-    }
+    fun peek(context: Context): IncomingMessage? =
+        prefs(context).getString(KEY_PENDING, null)?.let(::fromJson)
 
     fun clear(context: Context) {
         prefs(context).edit().remove(KEY_PENDING).apply()
     }
 
-    fun setLastRecording(context: Context, uri: String, name: String) {
-        prefs(context).edit()
+    fun setLastCaptured(context: Context, message: IncomingMessage) {
+        prefs(context).edit().putString(KEY_LAST_CAPTURED, toJson(message).toString()).apply()
+    }
+
+    fun lastCaptured(context: Context): IncomingMessage? =
+        prefs(context).getString(KEY_LAST_CAPTURED, null)?.let(::fromJson)
+
+    fun setListenerState(context: Context, connected: Boolean) {
+        prefs(context).edit().putBoolean(KEY_LISTENER_CONNECTED, connected).apply()
+    }
+
+    fun listenerConnected(context: Context): Boolean =
+        prefs(context).getBoolean(KEY_LISTENER_CONNECTED, false)
+
+    fun setLastRecording(context: Context, uri: String, name: String, target: IncomingMessage? = null) {
+        val edit = prefs(context).edit()
             .putString(KEY_LAST_RECORDING_URI, uri)
             .putString(KEY_LAST_RECORDING_NAME, name)
-            .apply()
+        if (target != null) edit.putString(KEY_LAST_RECORDING_TARGET, toJson(target).toString())
+        else edit.remove(KEY_LAST_RECORDING_TARGET)
+        edit.apply()
     }
 
     fun lastRecordingUri(context: Context): String? =
@@ -54,6 +61,34 @@ object PendingMessageStore {
 
     fun lastRecordingName(context: Context): String? =
         prefs(context).getString(KEY_LAST_RECORDING_NAME, null)
+
+    fun lastRecordingTarget(context: Context): IncomingMessage? =
+        prefs(context).getString(KEY_LAST_RECORDING_TARGET, null)?.let(::fromJson)
+
+    private fun toJson(message: IncomingMessage) = JSONObject()
+        .put("app", message.app)
+        .put("sender", message.sender)
+        .put("text", message.text)
+        .put("packageName", message.packageName)
+        .put("notificationKey", message.notificationKey)
+        .put("shortcutId", message.shortcutId)
+        .put("receivedAt", message.receivedAt)
+
+    private fun fromJson(raw: String): IncomingMessage? = runCatching {
+        val json = JSONObject(raw)
+        IncomingMessage(
+            app = json.optString("app", "Message"),
+            sender = json.optString("sender", "Unknown"),
+            text = json.optString("text", ""),
+            packageName = json.optNullableString("packageName"),
+            notificationKey = json.optNullableString("notificationKey"),
+            shortcutId = json.optNullableString("shortcutId"),
+            receivedAt = json.optLong("receivedAt", System.currentTimeMillis()),
+        )
+    }.getOrNull()
+
+    private fun JSONObject.optNullableString(key: String): String? =
+        if (!has(key) || isNull(key)) null else optString(key).takeIf { it.isNotBlank() }
 
     private fun prefs(context: Context) =
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
