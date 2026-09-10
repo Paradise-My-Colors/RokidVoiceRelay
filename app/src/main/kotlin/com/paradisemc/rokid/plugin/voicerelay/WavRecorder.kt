@@ -2,6 +2,7 @@ package com.paradisemc.rokid.plugin.voicerelay
 
 import android.content.ContentValues
 import android.content.Context
+import android.net.Uri
 import android.os.Environment
 import android.provider.MediaStore
 import java.io.File
@@ -37,11 +38,16 @@ class WavRecorder(private val context: Context) {
         writeHeader()
         raf.close()
 
+        val durationMs =
+            pcmBytes * 1000L / (sampleRate * channels * bitsPerSample / 8)
         val name = "RokidVoice_${System.currentTimeMillis()}.wav"
         val values = ContentValues().apply {
             put(MediaStore.Audio.Media.DISPLAY_NAME, name)
             put(MediaStore.Audio.Media.MIME_TYPE, "audio/wav")
-            put(MediaStore.Audio.Media.RELATIVE_PATH, "${Environment.DIRECTORY_MUSIC}/RokidVoiceRelay")
+            put(
+                MediaStore.Audio.Media.RELATIVE_PATH,
+                "${Environment.DIRECTORY_MUSIC}/RokidVoiceRelay",
+            )
             put(MediaStore.Audio.Media.IS_PENDING, 1)
         }
 
@@ -64,7 +70,7 @@ class WavRecorder(private val context: Context) {
                 null,
             )
             tempFile.delete()
-            PublishedRecording(uri.toString(), name)
+            PublishedRecording(uri.toString(), name, durationMs)
         } catch (_: Throwable) {
             resolver.delete(uri, null, null)
             tempFile.delete()
@@ -121,7 +127,8 @@ class WavRecorder(private val context: Context) {
             val low = output[i].toInt() and 0xFF
             val high = output[i + 1].toInt()
             val sample = (high shl 8) or low
-            val amplified = (sample * gain).roundToInt().coerceIn(Short.MIN_VALUE.toInt(), Short.MAX_VALUE.toInt())
+            val amplified = (sample * gain).roundToInt()
+                .coerceIn(Short.MIN_VALUE.toInt(), Short.MAX_VALUE.toInt())
             output[i] = (amplified and 0xFF).toByte()
             output[i + 1] = ((amplified shr 8) and 0xFF).toByte()
             i += 2
@@ -130,4 +137,12 @@ class WavRecorder(private val context: Context) {
     }
 }
 
-data class PublishedRecording(val uri: String, val name: String)
+data class PublishedRecording(
+    val uri: String,
+    val name: String,
+    val durationMs: Long,
+) {
+    fun delete(context: Context) {
+        runCatching { context.contentResolver.delete(Uri.parse(uri), null, null) }
+    }
+}
