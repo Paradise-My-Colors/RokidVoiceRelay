@@ -1,0 +1,94 @@
+name: Publish Voice Relay v0.5
+
+on:
+  push:
+    paths:
+      - '.release/v0.5'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android 36 platform
+        run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
+
+      - name: Set up Gradle 9.5.1
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.5.1'
+
+      - name: Restore persistent debug signing key
+        uses: actions/cache@v4
+        with:
+          path: ~/.android/debug.keystore
+          key: rokid-voice-relay-debug-signing-v1
+
+      - name: Create debug signing key if missing
+        shell: bash
+        run: |
+          if [ ! -f "$HOME/.android/debug.keystore" ]; then
+            mkdir -p "$HOME/.android"
+            keytool -genkeypair -v \
+              -keystore "$HOME/.android/debug.keystore" \
+              -storepass android \
+              -alias androiddebugkey \
+              -keypass android \
+              -dname "CN=Rokid Voice Relay Dev,O=ParadiseMC,C=DE" \
+              -keyalg RSA -keysize 2048 -validity 10000
+          fi
+
+      - name: Fetch pinned TDLib 1.8.65 Android libraries
+        shell: bash
+        run: |
+          curl -L --fail --retry 3 \
+            "https://github.com/up9cloud/android-libtdjson/releases/download/v1.8.65/jniLibs.tar.gz" \
+            -o /tmp/jniLibs.tar.gz
+          echo "eb777d3e7baedeb02871c691b2090daa1bc51baf9215a81bc55bf54edb76df2b  /tmp/jniLibs.tar.gz" | sha256sum -c -
+          rm -rf app/src/main/jniLibs jniLibs
+          tar -xzf /tmp/jniLibs.tar.gz
+          mv jniLibs app/src/main/jniLibs
+
+      - name: Build v0.5 APK
+        run: gradle :app:assembleDebug --stacktrace
+
+      - name: Prepare release files
+        shell: bash
+        run: |
+          cp app/build/outputs/apk/debug/app-debug.apk RokidVoiceRelay-v0.5.apk
+          sha256sum RokidVoiceRelay-v0.5.apk > RokidVoiceRelay-v0.5.apk.sha256
+
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          if gh release view v0.5 >/dev/null 2>&1; then
+            gh release upload v0.5 RokidVoiceRelay-v0.5.apk RokidVoiceRelay-v0.5.apk.sha256 --clobber
+            gh release edit v0.5 \
+              --title "Rokid Voice Relay v0.5 Beta" \
+              --notes-file RELEASE_NOTES_v0.5.md \
+              --prerelease
+          else
+            gh release create v0.5 \
+              RokidVoiceRelay-v0.5.apk \
+              RokidVoiceRelay-v0.5.apk.sha256 \
+              --target "$GITHUB_SHA" \
+              --title "Rokid Voice Relay v0.5 Beta" \
+              --notes-file RELEASE_NOTES_v0.5.md \
+              --prerelease
+          fi
