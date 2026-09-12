@@ -36,7 +36,7 @@ class VoiceRelaySettingsActivity : Activity() {
         setContentView(scroll)
 
         content.addView(text("Rokid Voice Relay", 26f, true))
-        content.addView(text("Prototype v0.5 · phone-aware HUD filters", 15f, false))
+        content.addView(text("Beta v0.6 · smart notification deduplication", 15f, false))
         spacer(content, 20)
 
         content.addView(text("Telegram", 19f, true))
@@ -52,6 +52,13 @@ class VoiceRelaySettingsActivity : Activity() {
         content.addView(text("Notification bridge", 19f, true))
         status = text("", 15f, true)
         content.addView(status)
+        content.addView(
+            text(
+                "Smart repeat filter: ON. Telegram reminder/re-post events and refreshed old conversations are ignored automatically; genuinely new messages still enter the HUD and inbox.",
+                13f,
+                false,
+            ),
+        )
 
         spacer(content, 10)
         content.addView(text("Glasses notification filters", 18f, true))
