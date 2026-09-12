@@ -6,19 +6,7 @@ import android.service.notification.StatusBarNotification
 import org.json.JSONArray
 import java.security.MessageDigest
 
-/**
- * Remembers actual messaging events that have already been handled.
- *
- * Telegram can re-post existing conversation notifications for reminder alerts
- * and can refresh other active conversations when one new message arrives.
- * Android reports those refreshes through onNotificationPosted(), so treating
- * every callback as a new message makes old notices appear again on the HUD.
- *
- * MessagingStyle message timestamps are stable across those notification
- * refreshes but change for a genuinely new message, which makes them a good
- * event identity. The identities are hashed and persisted so reminders remain
- * suppressed across listener/app restarts.
- */
+/** Remembers actual messaging events that have already been handled. */
 object NotificationEventDeduper {
     private const val PREFS = "nexus_plugin_voicerelay"
     private const val KEY_SEEN = "seen_notification_events_v2"
@@ -28,6 +16,8 @@ object NotificationEventDeduper {
         val sender: String,
         val text: String,
         val eventTimeMillis: Long,
+        val senderPersonUri: String? = null,
+        val senderPersonKey: String? = null,
     )
 
     fun extract(sbn: StatusBarNotification, fallbackSender: String): Payload? {
@@ -49,6 +39,8 @@ object NotificationEventDeduper {
                     sender = sender,
                     text = latest.text.toString(),
                     eventTimeMillis = latest.timestamp,
+                    senderPersonUri = latest.senderPerson?.uri,
+                    senderPersonKey = latest.senderPerson?.key,
                 )
             }
         }
@@ -58,9 +50,6 @@ object NotificationEventDeduper {
             ?: return null
         if (text.isBlank()) return null
 
-        // For non-MessagingStyle notifications, Notification.when is usually
-        // the content/event time and is preferable to StatusBarNotification.postTime,
-        // which can change when an old notification is merely re-posted.
         val eventTime = notification.`when`.takeIf { it > 0L } ?: 0L
         return Payload(sender, text, eventTime)
     }
@@ -83,7 +72,6 @@ object NotificationEventDeduper {
         return sha256(source)
     }
 
-    /** Returns true only the first time this actual message event is observed. */
     @Synchronized
     fun markIfNew(context: Context, eventId: String): Boolean {
         val events = load(context).toMutableList()
@@ -93,11 +81,6 @@ object NotificationEventDeduper {
         return true
     }
 
-    /**
-     * Marks currently active notifications as already seen without showing them.
-     * This is important after installing/updating/restarting Voice Relay: old
-     * unread conversations must not suddenly be treated as newly arrived.
-     */
     @Synchronized
     fun seed(context: Context, eventIds: Collection<String>) {
         if (eventIds.isEmpty()) return
