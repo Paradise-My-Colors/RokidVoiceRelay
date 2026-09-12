@@ -11,8 +11,6 @@ import com.paradisemc.rokid.plugin.voicerelay.telegram.TelegramSecureStore
 class VoiceRelayNotificationListener : NotificationListenerService() {
 
     private val runtime by lazy { VoiceRelayNoticeRuntime(applicationContext) }
-    private var lastFingerprint: String? = null
-    private var lastFingerprintAt: Long = 0L
 
     override fun onCreate() {
         super.onCreate()
@@ -23,6 +21,12 @@ class VoiceRelayNotificationListener : NotificationListenerService() {
         super.onListenerConnected()
         current = this
         PendingMessageStore.setListenerState(this, true)
+
+        // Android gives a newly connected listener all notifications that are
+        // already active. Mark their current message events as seen so an app
+        // update/restart never turns old unread messages into fresh HUD popups.
+        seedExistingNotificationEvents()
+
         if (TelegramSecureStore.hasCredentials(this)) {
             TelegramClientManager.get(this).start()
         }
@@ -50,37 +54,26 @@ class VoiceRelayNotificationListener : NotificationListenerService() {
 
     override fun onNotificationPosted(sbn: StatusBarNotification?) {
         sbn ?: return
-        if (sbn.notification.flags and Notification.FLAG_GROUP_SUMMARY != 0) return
-        if (sbn.isOngoing) return
+        if (!isSupportedConversationNotification(sbn)) return
 
         val app = appNameForPackage(sbn.packageName) ?: return
-        val extras = sbn.notification.extras ?: return
-        val sender = (
-            extras.getCharSequence(Notification.EXTRA_CONVERSATION_TITLE)
-                ?: extras.getCharSequence(Notification.EXTRA_TITLE)
-                ?: app
-            ).toString().trim()
+        val payload = NotificationEventDeduper.extract(sbn, app) ?: return
+        if (payload.text.isBlank()) return
 
-        val text = extractLatestMessage(extras)
-            ?: extras.getCharSequence(Notification.EXTRA_BIG_TEXT)?.toString()
-            ?: extras.getCharSequence(Notification.EXTRA_TEXT)?.toString()
-            ?: return
-
-        if (text.isBlank()) return
-
-        val now = System.currentTimeMillis()
-        val fingerprint = "${sbn.packageName}\u0000$sender\u0000$text"
-        if (fingerprint == lastFingerprint && now - lastFingerprintAt < 2500L) return
-        lastFingerprint = fingerprint
-        lastFingerprintAt = now
+        // Telegram may re-post the exact same underlying message as an hourly
+        // reminder, and may refresh every active chat notification when one
+        // genuinely new message arrives. Only an unseen message event is
+        // allowed to enter the HUD delivery path.
+        val eventId = NotificationEventDeduper.eventId(sbn, payload)
+        if (!NotificationEventDeduper.markIfNew(this, eventId)) return
 
         val message = IncomingMessage(
             app = app,
             packageName = sbn.packageName,
             notificationKey = sbn.key,
             shortcutId = sbn.notification.shortcutId,
-            sender = sender,
-            text = text,
+            sender = payload.sender,
+            text = payload.text,
         )
         PendingMessageStore.setLastCaptured(this, message)
 
@@ -101,6 +94,28 @@ class VoiceRelayNotificationListener : NotificationListenerService() {
         VoiceRelayPluginService.notifyInboxChanged()
     }
 
+    private fun seedExistingNotificationEvents() {
+        val ids = runCatching {
+            activeNotifications
+                .asSequence()
+                .filter(::isSupportedConversationNotification)
+                .mapNotNull { sbn ->
+                    val app = appNameForPackage(sbn.packageName) ?: return@mapNotNull null
+                    val payload = NotificationEventDeduper.extract(sbn, app) ?: return@mapNotNull null
+                    NotificationEventDeduper.eventId(sbn, payload)
+                }
+                .toList()
+        }.getOrDefault(emptyList())
+        NotificationEventDeduper.seed(this, ids)
+    }
+
+    private fun isSupportedConversationNotification(sbn: StatusBarNotification): Boolean {
+        if (appNameForPackage(sbn.packageName) == null) return false
+        if (sbn.notification.flags and Notification.FLAG_GROUP_SUMMARY != 0) return false
+        if (sbn.isOngoing) return false
+        return true
+    }
+
     private fun appNameForPackage(packageName: String): String? = when (packageName) {
         "com.whatsapp" -> "WhatsApp"
         "com.whatsapp.w4b" -> "WhatsApp Business"
@@ -109,12 +124,6 @@ class VoiceRelayNotificationListener : NotificationListenerService() {
         "org.telegram.messenger.beta" -> "Telegram Beta"
         "org.thunderdog.challegram" -> "Telegram X"
         else -> null
-    }
-
-    private fun extractLatestMessage(extras: android.os.Bundle): String? {
-        val bundles = extras.getParcelableArray(Notification.EXTRA_MESSAGES) ?: return null
-        val messages = Notification.MessagingStyle.Message.getMessagesFromBundleArray(bundles)
-        return messages.lastOrNull()?.text?.toString()?.takeIf { it.isNotBlank() }
     }
 
     companion object {
