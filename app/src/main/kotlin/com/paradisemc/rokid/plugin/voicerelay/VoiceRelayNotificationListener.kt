@@ -2,7 +2,10 @@ package com.paradisemc.rokid.plugin.voicerelay
 
 import android.app.Notification
 import android.app.NotificationManager
+import android.app.RemoteInput
 import android.content.ComponentName
+import android.content.Intent
+import android.net.Uri
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
 import com.paradisemc.rokid.plugin.voicerelay.telegram.TelegramClientManager
@@ -21,12 +24,7 @@ class VoiceRelayNotificationListener : NotificationListenerService() {
         super.onListenerConnected()
         current = this
         PendingMessageStore.setListenerState(this, true)
-
-        // Android gives a newly connected listener all notifications that are
-        // already active. Mark their current message events as seen so an app
-        // update/restart never turns old unread messages into fresh HUD popups.
         seedExistingNotificationEvents()
-
         if (TelegramSecureStore.hasCredentials(this)) {
             TelegramClientManager.get(this).start()
         }
@@ -60,10 +58,6 @@ class VoiceRelayNotificationListener : NotificationListenerService() {
         val payload = NotificationEventDeduper.extract(sbn, app) ?: return
         if (payload.text.isBlank()) return
 
-        // Telegram may re-post the exact same underlying message as an hourly
-        // reminder, and may refresh every active chat notification when one
-        // genuinely new message arrives. Only an unseen message event is
-        // allowed to enter the HUD delivery path.
         val eventId = NotificationEventDeduper.eventId(sbn, payload)
         if (!NotificationEventDeduper.markIfNew(this, eventId)) return
 
@@ -74,11 +68,11 @@ class VoiceRelayNotificationListener : NotificationListenerService() {
             shortcutId = sbn.notification.shortcutId,
             sender = payload.sender,
             text = payload.text,
+            senderPersonUri = payload.senderPersonUri,
+            senderPersonKey = payload.senderPersonKey,
         )
         PendingMessageStore.setLastCaptured(this, message)
 
-        // Keep suppressed messages available in the Voice Relay inbox, but do
-        // not connect to Nexus, wake the glasses, or update an active HUD card.
         if (!NotificationDisplayPreferences.shouldShowOnGlasses(this)) {
             PendingMessageStore.put(this, message)
             return
@@ -126,6 +120,39 @@ class VoiceRelayNotificationListener : NotificationListenerService() {
         else -> null
     }
 
+    private fun trySendAudioDataReply(
+        target: IncomingMessage,
+        uri: Uri,
+        mimeType: String,
+    ): Boolean = runCatching {
+        val candidates = activeNotifications.filter { sbn ->
+            sbn.packageName == target.packageName && (
+                (!target.notificationKey.isNullOrBlank() && sbn.key == target.notificationKey) ||
+                    (!target.shortcutId.isNullOrBlank() && sbn.notification.shortcutId == target.shortcutId)
+                )
+        }
+        val notification = candidates.firstOrNull()?.notification ?: return@runCatching false
+        val actions = notification.actions ?: return@runCatching false
+
+        val actionAndInput = actions.asSequence()
+            .flatMap { action ->
+                (action.remoteInputs ?: emptyArray()).asSequence().map { input -> action to input }
+            }
+            .firstOrNull { (_, input) ->
+                input.allowedDataTypes.any { allowed -> mimeMatches(allowed, mimeType) }
+            } ?: return@runCatching false
+
+        val (action, input) = actionAndInput
+        grantUriPermission(target.packageName, uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        val fillIn = Intent().apply {
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            clipData = android.content.ClipData.newUri(contentResolver, "Voice Relay audio", uri)
+        }
+        RemoteInput.addDataResultToIntent(input, fillIn, mapOf(mimeType to uri))
+        action.actionIntent.send(this, 0, fillIn)
+        true
+    }.getOrDefault(false)
+
     companion object {
         @Volatile private var current: VoiceRelayNotificationListener? = null
 
@@ -133,6 +160,19 @@ class VoiceRelayNotificationListener : NotificationListenerService() {
             if (notificationKey.isNullOrBlank()) return
             val listener = current ?: return
             runCatching { listener.cancelNotification(notificationKey) }
+        }
+
+        fun sendAudioDataReply(target: IncomingMessage, uri: Uri, mimeType: String): Boolean {
+            val listener = current ?: return false
+            return listener.trySendAudioDataReply(target, uri, mimeType)
+        }
+
+        private fun mimeMatches(allowed: String, actual: String): Boolean {
+            if (allowed == actual || allowed == "*/*") return true
+            if (allowed.endsWith("/*")) {
+                return actual.startsWith(allowed.substringBefore('/').plus('/'))
+            }
+            return false
         }
     }
 }
