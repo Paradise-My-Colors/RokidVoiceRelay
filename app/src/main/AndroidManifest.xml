@@ -7,8 +7,14 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
 
     <queries>
+        <package android:name="com.whatsapp" />
+        <package android:name="com.whatsapp.w4b" />
         <intent>
             <action android:name="com.anezium.rokidbus.action.HUB" />
+        </intent>
+        <intent>
+            <action android:name="android.provider.action.VOICE_SEND_MESSAGE_TO_CONTACTS" />
+            <data android:mimeType="audio/*" />
         </intent>
     </queries>
 
