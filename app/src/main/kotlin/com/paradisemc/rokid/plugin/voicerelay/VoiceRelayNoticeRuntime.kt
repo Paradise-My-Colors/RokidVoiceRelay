@@ -23,6 +23,7 @@ import com.anezium.rokidbus.shared.plugin.NexusInputEvent
 import com.anezium.rokidbus.shared.plugin.PluginCapability
 import com.paradisemc.rokid.plugin.voicerelay.telegram.TelegramClientManager
 import com.paradisemc.rokid.plugin.voicerelay.telegram.TelegramVoiceSender
+import com.paradisemc.rokid.plugin.voicerelay.whatsapp.WhatsAppVoiceSender
 import org.json.JSONObject
 
 /** Short-lived Nexus client owned by the Android notification listener. */
@@ -304,16 +305,18 @@ class VoiceRelayNoticeRuntime(context: Context) : NexusPluginCallbacks {
         val target = offeredMessage
         val recording = pendingRecording ?: return
         val telegram = TelegramVoiceSender.isTelegram(target)
-        val connected = TelegramClientManager.get(appContext).isReady()
+        val whatsapp = WhatsAppVoiceSender.isWhatsApp(target)
+        val telegramConnected = TelegramClientManager.get(appContext).isReady()
 
         val lines = mutableListOf<String>()
         lines += "To: ${target?.sender.orEmpty().clean(42)}"
         lines += "Length: ${formatDuration(recording.durationMs)}"
         when {
             error != null -> lines += error.clean(180)
-            !telegram -> lines += "WhatsApp sending is not enabled yet."
-            !connected -> lines += "Telegram setup required on phone."
-            else -> lines += "Ready to send as a Telegram voice message."
+            telegram && !telegramConnected -> lines += "Telegram setup required on phone."
+            telegram -> lines += "Ready to send as a Telegram voice message."
+            whatsapp -> lines += "Ready to try WhatsApp voice delivery."
+            else -> lines += "Sending is not available for this app."
         }
 
         val currentClient = client ?: return
@@ -322,7 +325,7 @@ class VoiceRelayNoticeRuntime(context: Context) : NexusPluginCallbacks {
             NexusCard(
                 title = "Voice note ready",
                 lines = lines.take(4),
-                footer = if (telegram) {
+                footer = if (telegram || whatsapp) {
                     "tap send · ↑/← retake · back cancel"
                 } else {
                     "↑/← retake · back cancel"
@@ -336,11 +339,14 @@ class VoiceRelayNoticeRuntime(context: Context) : NexusPluginCallbacks {
         val target = offeredMessage ?: return
         val recording = pendingRecording ?: return
 
-        if (!TelegramVoiceSender.isTelegram(target)) {
-            showConfirmation("This build sends Telegram voice notes only.")
-            return
+        when {
+            TelegramVoiceSender.isTelegram(target) -> sendTelegram(target, recording)
+            WhatsAppVoiceSender.isWhatsApp(target) -> sendWhatsApp(target, recording)
+            else -> showConfirmation("This messaging app does not have a sender yet.")
         }
+    }
 
+    private fun sendTelegram(target: IncomingMessage, recording: PublishedRecording) {
         sending = true
         showResultCard(
             "Sending…",
@@ -352,19 +358,7 @@ class VoiceRelayNoticeRuntime(context: Context) : NexusPluginCallbacks {
                 sending = false
                 result.fold(
                     onSuccess = {
-                        PendingMessageStore.remove(appContext, target)
-                        VoiceRelayNotificationListener.dismissNotification(target.notificationKey)
-                        VoiceRelayPluginService.notifyInboxChanged()
-                        pendingRecording = null
-                        showResultCard(
-                            "Sent",
-                            "Voice message sent to ${target.sender.clean(60)}.",
-                        )
-                        main.postDelayed({
-                            surface?.hide()
-                            surface = null
-                            closeClientIfIdle()
-                        }, 1_400L)
+                        finishSuccessfulSend(target, "Voice message sent to ${target.sender.clean(60)}.")
                     },
                     onFailure = { error ->
                         showConfirmation(error.message ?: "Telegram send failed.")
@@ -372,6 +366,45 @@ class VoiceRelayNoticeRuntime(context: Context) : NexusPluginCallbacks {
                 )
             }
         }
+    }
+
+    private fun sendWhatsApp(target: IncomingMessage, recording: PublishedRecording) {
+        sending = true
+        showResultCard(
+            "Sending…",
+            "${target.app} · ${target.sender}\nTrying WhatsApp notification/Android voice-message transport.",
+        )
+
+        WhatsAppVoiceSender.send(appContext, target, recording) { result ->
+            onMain {
+                sending = false
+                result.fold(
+                    onSuccess = { outcome ->
+                        if (outcome.completedInBackground) {
+                            finishSuccessfulSend(target, "Voice message handed to ${target.sender.clean(60)}.")
+                        } else {
+                            showResultCard("Phone confirmation", outcome.detail)
+                        }
+                    },
+                    onFailure = { error ->
+                        showConfirmation(error.message ?: "WhatsApp send failed.")
+                    },
+                )
+            }
+        }
+    }
+
+    private fun finishSuccessfulSend(target: IncomingMessage, detail: String) {
+        PendingMessageStore.remove(appContext, target)
+        VoiceRelayNotificationListener.dismissNotification(target.notificationKey)
+        VoiceRelayPluginService.notifyInboxChanged()
+        pendingRecording = null
+        showResultCard("Sent", detail)
+        main.postDelayed({
+            surface?.hide()
+            surface = null
+            closeClientIfIdle()
+        }, 1_400L)
     }
 
     private fun retakeRecording() {
