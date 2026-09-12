@@ -11,6 +11,8 @@ data class IncomingMessage(
     val packageName: String? = null,
     val notificationKey: String? = null,
     val shortcutId: String? = null,
+    val senderPersonUri: String? = null,
+    val senderPersonKey: String? = null,
     val receivedAt: Long = System.currentTimeMillis(),
 ) {
     /** Prefer conversation identity so repeated messages update one inbox row. */
@@ -139,6 +141,8 @@ object PendingMessageStore {
         .put("packageName", message.packageName)
         .put("notificationKey", message.notificationKey)
         .put("shortcutId", message.shortcutId)
+        .put("senderPersonUri", message.senderPersonUri)
+        .put("senderPersonKey", message.senderPersonKey)
         .put("receivedAt", message.receivedAt)
 
     private fun fromJson(raw: String): IncomingMessage? = runCatching {
@@ -150,6 +154,8 @@ object PendingMessageStore {
             packageName = json.optNullableString("packageName"),
             notificationKey = json.optNullableString("notificationKey"),
             shortcutId = json.optNullableString("shortcutId"),
+            senderPersonUri = json.optNullableString("senderPersonUri"),
+            senderPersonKey = json.optNullableString("senderPersonKey"),
             receivedAt = json.optLong("receivedAt", System.currentTimeMillis()),
         )
     }.getOrNull()
