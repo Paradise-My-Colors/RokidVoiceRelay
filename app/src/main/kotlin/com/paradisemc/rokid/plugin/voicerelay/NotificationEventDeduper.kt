@@ -5,6 +5,7 @@ import android.content.Context
 import android.service.notification.StatusBarNotification
 import org.json.JSONArray
 import java.security.MessageDigest
+import java.util.Locale
 
 /** Remembers actual messaging events that have already been handled. */
 object NotificationEventDeduper {
@@ -18,6 +19,9 @@ object NotificationEventDeduper {
         val eventTimeMillis: Long,
         val senderPersonUri: String? = null,
         val senderPersonKey: String? = null,
+        val mediaMimeType: String? = null,
+        val mediaUri: String? = null,
+        val voiceMessage: Boolean = false,
     )
 
     fun extract(sbn: StatusBarNotification, fallbackSender: String): Payload? {
@@ -35,12 +39,18 @@ object NotificationEventDeduper {
             val messages = Notification.MessagingStyle.Message.getMessagesFromBundleArray(bundles)
             val latest = messages.lastOrNull { !it.text.isNullOrBlank() }
             if (latest != null) {
+                val mime = latest.dataMimeType
+                val uri = latest.dataUri?.toString()
+                val text = latest.text.toString()
                 return Payload(
                     sender = sender,
-                    text = latest.text.toString(),
+                    text = text,
                     eventTimeMillis = latest.timestamp,
                     senderPersonUri = latest.senderPerson?.uri,
                     senderPersonKey = latest.senderPerson?.key,
+                    mediaMimeType = mime,
+                    mediaUri = uri,
+                    voiceMessage = looksLikeVoiceMessage(text, mime),
                 )
             }
         }
@@ -51,7 +61,12 @@ object NotificationEventDeduper {
         if (text.isBlank()) return null
 
         val eventTime = notification.`when`.takeIf { it > 0L } ?: 0L
-        return Payload(sender, text, eventTime)
+        return Payload(
+            sender = sender,
+            text = text,
+            eventTimeMillis = eventTime,
+            voiceMessage = looksLikeVoiceMessage(text, null),
+        )
     }
 
     fun eventId(sbn: StatusBarNotification, payload: Payload): String {
@@ -89,6 +104,22 @@ object NotificationEventDeduper {
             if (id !in events) events.add(id)
         }
         save(context, events.takeLast(MAX_SEEN))
+    }
+
+    private fun looksLikeVoiceMessage(text: String, mimeType: String?): Boolean {
+        if (mimeType?.lowercase(Locale.ROOT)?.startsWith("audio/") == true) return true
+        val value = text.lowercase(Locale.ROOT).trim()
+        return listOf(
+            "voice message",
+            "voice note",
+            "sprachnachricht",
+            "audio message",
+            "رسالة صوتية",
+            "رساله صوتيه",
+            "مقطع صوتي",
+            "🎤",
+            "🎙",
+        ).any(value::contains)
     }
 
     private fun load(context: Context): List<String> {
