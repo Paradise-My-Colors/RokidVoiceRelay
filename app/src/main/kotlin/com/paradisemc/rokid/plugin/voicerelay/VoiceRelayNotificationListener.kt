@@ -70,6 +70,10 @@ class VoiceRelayNotificationListener : NotificationListenerService() {
             text = payload.text,
             senderPersonUri = payload.senderPersonUri,
             senderPersonKey = payload.senderPersonKey,
+            mediaMimeType = payload.mediaMimeType,
+            mediaUri = payload.mediaUri,
+            voiceMessage = payload.voiceMessage,
+            eventTimeMillis = payload.eventTimeMillis,
         )
         PendingMessageStore.setLastCaptured(this, message)
 
