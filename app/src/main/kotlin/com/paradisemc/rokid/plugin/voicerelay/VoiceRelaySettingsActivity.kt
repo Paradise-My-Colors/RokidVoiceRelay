@@ -36,7 +36,14 @@ class VoiceRelaySettingsActivity : Activity() {
         setContentView(scroll)
 
         content.addView(text("Rokid Voice Relay", 26f, true))
-        content.addView(text("Beta v0.6 · smart notification deduplication", 15f, false))
+        content.addView(text("Beta v0.8 · reliability + private backdrop + voice playback", 15f, false))
+        content.addView(
+            text(
+                "Glasses transport: Nexus Bluetooth/CXR/SPP. Voice Relay itself does not require Wi-Fi; the phone still needs internet for Telegram/WhatsApp services.",
+                13f,
+                false,
+            ),
+        )
         spacer(content, 20)
 
         content.addView(text("Telegram", 19f, true))
@@ -54,7 +61,21 @@ class VoiceRelaySettingsActivity : Activity() {
         content.addView(status)
         content.addView(
             text(
-                "Smart repeat filter: ON. Telegram reminder/re-post events and refreshed old conversations are ignored automatically; genuinely new messages still enter the HUD and inbox.",
+                "Reliable delivery: new HUD notices remain eligible for replay for up to 2 minutes while the Nexus link/register state recovers. Smart repeat filtering still ignores Telegram reminder/re-post events.",
+                13f,
+                false,
+            ),
+        )
+        content.addView(
+            text(
+                "Incoming notification bands use Nexus backdrop mode, hiding the underlying HUD and preventing input from falling through behind the message.",
+                13f,
+                false,
+            ),
+        )
+        content.addView(
+            text(
+                "Voice playback is best-effort. It is offered when Android identifies a voice message; playback requires the messaging notification to expose an accessible audio URI and a Bluetooth audio output.",
                 13f,
                 false,
             ),
@@ -108,7 +129,7 @@ class VoiceRelaySettingsActivity : Activity() {
                     IncomingMessage(
                         app = "Test",
                         sender = "Voice Relay Test",
-                        text = "This test becomes an inbox item. Real Telegram messages can be replied to after Telegram setup.",
+                        text = "v0.8 reliability test: this notice should retry while Nexus reconnects and hide the background HUD.",
                         packageName = packageName,
                         notificationKey = "test-${System.currentTimeMillis()}",
                     ),
@@ -147,7 +168,7 @@ class VoiceRelaySettingsActivity : Activity() {
         content.addView(text("Glasses controls", 19f, true))
         content.addView(
             text(
-                "Inbox: Left/Up = previous, Right/Down = next, Tap = record. Recording: Tap = stop. Confirmation: Tap = Send, Up/Left = Retake, Back = Cancel. A Telegram inbox item disappears only after Telegram confirms the send.",
+                "Inbox: Left/Up = previous, Right/Down = next. Tap a text message = voice reply. Tap a detected voice message = try playback; after playback, Tap = voice reply. Recording: Tap = stop. Confirmation: Tap = Send, Up/Left = Retake, Back = Cancel.",
                 15f,
                 false,
             ),
@@ -169,6 +190,7 @@ class VoiceRelaySettingsActivity : Activity() {
         status.text = buildString {
             append("Notification access: $grant\nListener: $listener")
             append("\nPending inbox: ${inbox.size}")
+            append("\nGlasses transport: Bluetooth/Nexus · no Voice Relay Wi-Fi requirement")
             append(
                 "\nPhone state: " + when {
                     NotificationDisplayPreferences.isPhoneSilent(this@VoiceRelaySettingsActivity) -> "SILENT"
@@ -180,6 +202,8 @@ class VoiceRelaySettingsActivity : Activity() {
                 append("\nLast captured: ${capture.app} · ${capture.sender}")
                 append("\nPackage: ${capture.packageName ?: "unknown"}")
                 capture.shortcutId?.let { append("\nConversation shortcut: $it") }
+                if (capture.voiceMessage) append("\nVoice message: detected")
+                capture.mediaMimeType?.let { append(" · $it") }
             }
             if (inbox.isNotEmpty()) {
                 append("\nNewest pending: ${inbox.first().app} · ${inbox.first().sender}")
