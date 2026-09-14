@@ -80,10 +80,10 @@ object VoicePlaybackManager {
                     callback(Result.failure(IllegalStateException("Voice playback failed ($what/$extra).")))
                     true
                 }
-                player.prepareAsync()
                 player.setOnPreparedListener { it.start() }
+                player.prepareAsync()
             }
-        }.onFailure(callback)
+        }.onFailure { error -> callback(Result.failure(error)) }
     }
 
     fun stop() {
