@@ -1,110 +1,127 @@
 # Rokid Voice Relay
 
-**Rokid Voice Relay** is an experimental Android companion plugin for **Rokid Nexus / Rokid Glasses** that brings Telegram and WhatsApp notifications to the glasses and lets you reply to Telegram conversations with a real voice note recorded directly from the Rokid microphone.
+**Rokid Voice Relay** is an experimental Android companion plugin for **Rokid Nexus / Rokid Glasses**. It brings Telegram and WhatsApp notifications to the HUD, keeps a persistent glasses-side inbox, and lets the wearer record real voice replies using the Rokid microphone — without speech-to-text or language selection.
 
-The project was built specifically to avoid speech-to-text. Voice replies remain language-agnostic: speak Arabic, German, English, or switch between them naturally without selecting a recognition language.
-
-> **Current release:** v0.5 Beta  
+> **Current release:** v0.8 Beta  
 > **Android:** 11+ (`minSdk 30`)  
 > **Rokid Nexus SDK:** `sdk-v0.16.0`
 
-## What it does
+## Highlights
 
-- Shows supported Telegram / WhatsApp notifications as an ~8 second HUD notice on Rokid Glasses.
-- Can wake the glasses display for an incoming message.
-- Records actual audio from the Rokid glasses microphone.
-- Sends recorded audio to Telegram as a native Telegram voice message using TDLib.
-- Keeps a persistent pending-message inbox on the glasses after the temporary popup disappears.
-- Supports multiple pending conversations and lets you move between them from the glasses.
-- Groups repeated messages from the same conversation into one pending conversation entry.
-- Removes an inbox entry when the corresponding Android notification is dismissed/removed or after a Telegram voice reply is successfully sent.
-- Offers **Send / Retake / Cancel** after recording instead of transmitting immediately.
-- Stores a playable WAV copy of the most recent recording on the phone.
-- Can suppress HUD notifications when the phone is in **Silent** mode.
-- Can optionally suppress HUD notifications while the phone is **unlocked and in active use**.
-- Suppressed notifications are still captured in the Voice Relay inbox, so they can be answered later.
+- Telegram and WhatsApp conversation notifications on the Rokid HUD.
+- ~8-second incoming-message notice with optional display wake.
+- Native Nexus **backdrop mode** hides the underlying HUD while a message notice is active and helps prevent input leaking to the UI underneath.
+- Persistent multi-conversation inbox on the glasses.
+- Smart persistent de-duplication filters Telegram reminder/re-post events and prevents old pending messages from popping up again when a genuinely new notification arrives.
+- More resilient notification delivery: temporarily blocked Nexus notices remain eligible for replay for up to 120 seconds instead of being discarded after a short cold-start/link delay.
+- More resilient manual launch: the inbox retries rendering when Nexus/link readiness changes instead of relying on a single surface-open attempt.
+- Audio recording directly from the Rokid glasses microphone (16 kHz mono PCM).
+- **Send / Retake / Cancel** before a voice reply is transmitted.
+- Telegram native voice-note sending through TDLib using OGG/Opus.
+- Experimental WhatsApp audio-reply transport using supported Android notification/data-reply interfaces when exposed by the installed WhatsApp version, with Android voice-message intent fallback.
+- Best-effort detection/playback of received voice messages when the source notification exposes an accessible audio URI.
+- Phone Silent-mode suppression and optional suppression while the phone is unlocked.
+- No Voice Relay Wi-Fi dependency: ordinary Voice Relay/Nexus plugin traffic uses the existing Nexus glasses link/Bluetooth bus. Internet access is still required on the phone for Telegram/WhatsApp themselves.
 
-## Current messaging support
+## Messaging support
 
 ### Telegram
 
-Notification capture and native voice-note sending are implemented.
-
-Supported Android packages include:
+Telegram notification capture, inbox routing, glasses-microphone recording and native voice-note sending are implemented. Supported packages:
 
 - Telegram Play Store — `org.telegram.messenger`
 - Telegram direct-download — `org.telegram.messenger.web`
 - Telegram Beta — `org.telegram.messenger.beta`
 - Telegram X — `org.thunderdog.challegram`
 
-Voice Relay uses the Android conversation shortcut (for example `ndid_...`) as a routing hint and validates/resolves the corresponding Telegram conversation through TDLib before sending.
+Voice Relay uses the Android conversation shortcut (for example `ndid_...`) as a routing hint and validates/resolves the target conversation through TDLib before sending. Telegram setup requires your own `api_id` and `api_hash` from `my.telegram.org`.
 
 ### WhatsApp
 
-Notification capture and inbox display are implemented for:
+Notification capture and inbox display are supported for:
 
 - WhatsApp — `com.whatsapp`
 - WhatsApp Business — `com.whatsapp.w4b`
 
-**Sending native WhatsApp voice notes is not implemented yet.** Android notification `RemoteInput` only supports text replies, so WhatsApp requires a different transport strategy than Telegram.
+WhatsApp voice sending is **experimental**. Voice Relay first tries the original notification's Android data-reply channel when WhatsApp exposes an audio MIME type. If unavailable, it tries Android's standard voice-message-to-contact contract. Some WhatsApp versions may require confirmation on the phone, and some may expose neither route. Voice Relay does not use an unofficial WhatsApp network protocol.
+
+## Received voice-message playback
+
+v0.8 detects likely voice-message notifications and can offer **Play**. Playback currently requires the messaging notification to expose an Android-accessible audio URI and an available Bluetooth audio output. Voice Relay deliberately does not fall back to the phone loudspeaker.
+
+- **Telegram:** notification-exposed audio can be played. A future TDLib media-download path can make this more reliable when the notification itself does not expose the media.
+- **WhatsApp:** generally limited because personal WhatsApp notifications usually do not expose the underlying encrypted voice-note media file to other Android apps.
+
+A failed/unavailable Play attempt does not remove the message; the wearer can still record a reply.
 
 ## Glasses experience
 
-Typical flow:
-
 ```text
-Telegram notification arrives
-        ↓
-8-second Rokid HUD notice
-        ↓
+New message
+    ↓
+Backdrop HUD notice
+    ↓
 Tap Voice note
-        ↓
+    ↓
 Record from Rokid microphone
-        ↓
+    ↓
 Tap to stop
-        ↓
+    ↓
 Send / Retake / Cancel
-        ↓
+    ↓
 Telegram native voice message
-        ↓
-Pending inbox entry removed after success
 ```
 
-If the temporary notice is ignored, the conversation remains available in the Voice Relay inbox on the glasses.
+If the temporary notice is ignored, the conversation remains in the Voice Relay inbox.
 
 ### Inbox controls
 
 - **Left / Up:** previous pending conversation
 - **Right / Down:** next pending conversation
 - **Center / Enter:** record a voice reply
+- If the selected item is recognized as a voice message, **Center / Enter first attempts Play**; after playback/unavailable status, tap again to reply
 - During recording: **Center / Enter** stops recording
-- Confirmation screen: **Center / Enter** sends, **Up / Left** retakes, **Back** cancels
+- Confirmation: **Center / Enter** sends, **Up / Left** retakes, **Back** cancels
+
+## Reliability and de-duplication
+
+Voice Relay distinguishes actual new messaging events from Android/Telegram notification re-posts. Event identities are persisted across process restarts, and currently active notifications are seeded when the listener reconnects so a restart does not create a burst of old HUD popups.
+
+If Nexus is temporarily not registered/ready or the glasses link is recovering, an incoming notice stays pending for up to two minutes and is retried when link/registration state changes. Manual inbox opening also retries rather than relying on one surface-render attempt.
 
 ## Phone-aware notification filters
 
-v0.5 adds two independent HUD filters:
+Two independent filters affect automatic HUD delivery only; suppressed messages remain available in the inbox:
 
-- **Respect phone Silent mode** — enabled by default. If Android ringer mode is Silent, the message is stored in the inbox but the glasses are not woken and no HUD notification is shown.
-- **Hide HUD notifications while phone is unlocked** — optional. If enabled, messages received while the phone screen is on and the keyguard is dismissed are stored without interrupting the glasses.
+- **Keep glasses quiet when phone is Silent** — enabled by default.
+- **Hide HUD notifications while phone is unlocked** — optional; applies while the display is on and keyguard is dismissed.
 
-The test-notification button intentionally ignores these filters so the Nexus connection can always be tested.
+The manual test-notification button intentionally ignores these filters.
+
+## Connectivity
+
+Voice Relay does not request or manage Wi-Fi and does not intentionally open Wi-Fi Settings. Ordinary plugin commands, notices, input and microphone traffic use the Nexus phone/glasses link. You can test Voice Relay with **phone Wi-Fi off**, Bluetooth/Nexus connected, and mobile data providing internet connectivity.
+
+If Wi-Fi Settings opens while using Voice Relay, report the exact sequence that caused it so the Nexus/Rokid link-state path can be investigated.
 
 ## Setup
 
 1. Install the APK on the Android phone paired with Rokid Nexus.
 2. In **Rokid Nexus → Plugin access**, approve **Voice Relay** with **Surfaces** and **Microphone** access.
 3. In Voice Relay, open **Android notification access** and enable Voice Relay.
-4. Disable the stock **Nexus Relay** notification plugin to avoid duplicate notices or competing reply behavior. Keep the main **Rokid Nexus** app running.
-5. For Telegram voice-note sending, obtain your own Telegram `api_id` and `api_hash` from `my.telegram.org` and enter them only in the local Telegram setup screen inside Voice Relay.
-6. Complete Telegram login on the phone. Login codes, 2FA passwords, and the API hash should not be shared with anyone.
+4. Disable the stock **Nexus Relay** plugin to avoid duplicate notifications/reply handling. Keep the main Rokid Nexus system enabled.
+5. For Telegram sending, obtain your own Telegram `api_id` and `api_hash` from `my.telegram.org` and enter them only in Voice Relay's local Telegram setup screen.
+6. Complete Telegram login on the phone. Do not share the API hash, login code or 2FA password.
 
-## Privacy and local data
+v0.8 uses the same persistent development signer as previous test builds and can update compatible v0.2+ installations in place.
 
-- Notification text and the Voice Relay inbox are stored locally in the app's private Android preferences.
-- Telegram API credentials and the TDLib database key are protected using Android Keystore-backed encryption.
-- Voice recordings are captured as 16 kHz mono PCM from the Rokid microphone. A WAV copy can be published to `Music/RokidVoiceRelay` for testing/playback.
-- Telegram voice replies are converted to OGG/Opus before sending through TDLib.
-- The app does not require speech recognition and does not transcribe your voice reply.
+## Privacy and security
+
+- Notification text and the pending inbox are stored locally in the app's private Android storage.
+- Telegram API credentials and the TDLib database key use Android Keystore-backed encryption.
+- Voice Relay does not perform speech-to-text and does not transcribe voice replies.
+- Telegram voice replies are encoded to OGG/Opus before transmission through TDLib.
+- WhatsApp integration avoids unofficial account/network protocols.
 
 ## Build details
 
@@ -115,13 +132,13 @@ The test-notification button intentionally ignores these filters so the Nexus co
 - compileSdk / targetSdk 36
 - minSdk 30
 - Rokid Nexus SDK `sdk-v0.16.0`
-- TDLib 1.8.65 Android native libraries are downloaded from a pinned release during CI and verified by SHA-256 before packaging.
-- GitHub Actions uses a persistent development signing key so v0.2+ builds can update in place during testing.
+- TDLib 1.8.65 Android native libraries are downloaded from a pinned release during CI and SHA-256 verified before packaging
+- Persistent development signing key for in-place test upgrades
 
 ## Status
 
-v0.5 is a **Beta / experimental build**, not a production-hardened release. Telegram notification delivery, multi-conversation inbox handling, Rokid microphone capture, and Telegram voice-note sending have been validated on real hardware. WhatsApp voice-note sending remains future work.
+v0.8 is a **Beta / experimental release**. Telegram notification capture, glasses microphone recording, inbox handling and Telegram voice-note sending have been exercised on real hardware. The v0.8 Nexus reliability/backdrop changes and received-media playback path are active hardware-testing features. WhatsApp sending and received voice playback depend on capabilities exposed by the installed WhatsApp/Android notification implementation.
 
 ## Disclaimer
 
-This is an independent project and is not affiliated with, endorsed by, or sponsored by Rokid, Telegram, or WhatsApp/Meta.
+This is an independent project and is not affiliated with, endorsed by, or sponsored by Rokid, Telegram, WhatsApp, or Meta.
