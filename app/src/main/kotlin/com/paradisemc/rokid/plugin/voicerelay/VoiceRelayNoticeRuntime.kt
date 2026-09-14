@@ -3,6 +3,7 @@ package com.paradisemc.rokid.plugin.voicerelay
 import android.content.Context
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.view.KeyEvent
 import com.anezium.rokidbus.client.PluginRegistrationResult
 import com.anezium.rokidbus.client.plugin.NexusAudioCallbacks
@@ -42,7 +43,10 @@ class VoiceRelayNoticeRuntime(context: Context) : NexusPluginCallbacks {
     private var keepRecordingOnStop = true
     private var transitioningFromNotice = false
     private var sending = false
+    private var playing = false
+    private var playbackFinished = false
     private var showGeneration = 0
+    private var pendingShowStartedAtMs = 0L
 
     private val safetyStop = Runnable {
         if (audio != null) {
@@ -56,18 +60,30 @@ class VoiceRelayNoticeRuntime(context: Context) : NexusPluginCallbacks {
         PendingMessageStore.put(appContext, message)
         showGeneration += 1
         val generation = showGeneration
+        pendingShowStartedAtMs = SystemClock.elapsedRealtime()
 
         ensureClient()
         tryShowPending()
-        listOf(250L, 750L, 1500L, 3000L, 5000L).forEach { delay ->
+        RETRY_DELAYS_MS.forEach { delay ->
             main.postDelayed({
-                if (generation == showGeneration && pendingMessage != null) tryShowPending()
+                if (generation != showGeneration || pendingMessage == null) return@postDelayed
+                val age = SystemClock.elapsedRealtime() - pendingShowStartedAtMs
+                if (age >= REPLAY_WINDOW_MS) {
+                    pendingMessage = null
+                    closeClientIfIdle()
+                } else {
+                    ensureClient()
+                    tryShowPending()
+                }
             }, delay)
         }
     }
 
     fun shutdown() = onMain {
         main.removeCallbacksAndMessages(null)
+        VoicePlaybackManager.stop()
+        playing = false
+        playbackFinished = false
         if (audio != null) {
             keepRecordingOnStop = false
             audio?.stop()
@@ -97,50 +113,83 @@ class VoiceRelayNoticeRuntime(context: Context) : NexusPluginCallbacks {
         if (!currentClient.hasCapability(PluginCapability.SURFACES)) return
         if (!currentClient.supportsNoticeSurface) return
 
+        val actions = buildList {
+            if (VoicePlaybackManager.canOffer(message)) {
+                add(
+                    NexusNoticeAction(
+                        id = ACTION_PLAY,
+                        glyph = "play",
+                        label = "Play",
+                    ),
+                )
+            }
+            add(
+                NexusNoticeAction(
+                    id = ACTION_RECORD,
+                    glyph = "mic",
+                    label = "Voice note",
+                ),
+            )
+        }
         val result = currentClient.showNotice(
             NexusNotice(
                 title = message.sender.clean(32),
                 body = message.text.clean(1024),
-                footer = "${message.app.clean(22)} · tap mic",
-                actions = listOf(
-                    NexusNoticeAction(
-                        id = ACTION_RECORD,
-                        glyph = "mic",
-                        label = "Voice note",
-                    ),
-                ),
+                footer = if (message.voiceMessage) "${message.app.clean(22)} · play or reply" else "${message.app.clean(22)} · tap mic",
+                actions = actions,
                 ttlMs = 8_000L,
                 wakeDisplay = true,
+                backdrop = true,
             ),
         )
 
         if (result == NexusSdkResult.SENT) {
             offeredMessage = message
             pendingMessage = null
+            pendingShowStartedAtMs = 0L
             PendingMessageStore.clear(appContext)
         }
     }
 
     override fun onOpen() = Unit
     override fun onClose() = Unit
-    override fun onLinkState(state: Int) = onMain { tryShowPending() }
+    override fun onLinkState(state: Int) = onMain {
+        if (pendingMessage != null) {
+            ensureClient()
+            tryShowPending()
+        }
+    }
 
     override fun onRegistrationState(result: Int) = onMain {
         if (result == PluginRegistrationResult.APPROVED) tryShowPending()
     }
 
     override fun onNoticeAction(id: String) = onMain {
-        if (id != ACTION_RECORD || audio != null) return@onMain
-        transitioningFromNotice = true
-        client?.hideNotice()
-        main.postDelayed({
-            transitioningFromNotice = false
-            beginVoiceRecording()
-        }, 120L)
+        when (id) {
+            ACTION_RECORD -> {
+                if (audio != null || playing) return@onMain
+                transitioningFromNotice = true
+                client?.hideNotice()
+                main.postDelayed({
+                    transitioningFromNotice = false
+                    beginVoiceRecording()
+                }, 120L)
+            }
+            ACTION_PLAY -> {
+                if (audio != null || playing) return@onMain
+                val target = offeredMessage ?: return@onMain
+                transitioningFromNotice = true
+                client?.hideNotice()
+                main.postDelayed({
+                    transitioningFromNotice = false
+                    playVoiceMessage(target)
+                }, 120L)
+            }
+        }
     }
 
     override fun onNoticeClosed(reason: NexusNoticeCloseReason) = onMain {
-        if (transitioningFromNotice || audio != null || surface != null || pendingRecording != null) {
+        if (transitioningFromNotice || audio != null || surface != null || pendingRecording != null || playing) {
             return@onMain
         }
         closeClientIfIdle()
@@ -148,6 +197,17 @@ class VoiceRelayNoticeRuntime(context: Context) : NexusPluginCallbacks {
 
     override fun onInput(event: NexusInputEvent) = onMain {
         if (event.action != KeyEvent.ACTION_DOWN) return@onMain
+
+        if (playing) {
+            if (event.keyCode == KeyEvent.KEYCODE_BACK) {
+                VoicePlaybackManager.stop()
+                playing = false
+                surface?.hide()
+                surface = null
+                closeClientIfIdle()
+            }
+            return@onMain
+        }
 
         if (audio != null) {
             when (event.keyCode) {
@@ -159,6 +219,23 @@ class VoiceRelayNoticeRuntime(context: Context) : NexusPluginCallbacks {
         }
 
         if (sending) return@onMain
+
+        if (playbackFinished) {
+            when (event.keyCode) {
+                KeyEvent.KEYCODE_DPAD_CENTER,
+                KeyEvent.KEYCODE_ENTER -> {
+                    playbackFinished = false
+                    beginVoiceRecording()
+                }
+                KeyEvent.KEYCODE_BACK -> {
+                    playbackFinished = false
+                    surface?.hide()
+                    surface = null
+                    closeClientIfIdle()
+                }
+            }
+            return@onMain
+        }
 
         if (pendingRecording != null) {
             when (event.keyCode) {
@@ -184,6 +261,27 @@ class VoiceRelayNoticeRuntime(context: Context) : NexusPluginCallbacks {
 
     override fun onMessage(path: String, id: String, payload: JSONObject) = Unit
 
+    private fun playVoiceMessage(target: IncomingMessage) {
+        playing = true
+        playbackFinished = false
+        showResultCard("Playing voice…", "${target.app} · ${target.sender}\nBluetooth audio only; phone speaker fallback is blocked.")
+        VoicePlaybackManager.play(appContext, target) { result ->
+            onMain {
+                playing = false
+                result.fold(
+                    onSuccess = {
+                        playbackFinished = true
+                        showResultCard("Finished", "Voice message played.\nTap to record a reply · back close")
+                    },
+                    onFailure = { error ->
+                        playbackFinished = true
+                        showResultCard("Playback unavailable", "${error.message ?: "Could not play this voice message."}\nTap to record a reply")
+                    },
+                )
+            }
+        }
+    }
+
     private fun beginVoiceRecording() {
         val currentClient = client ?: return
         if (!currentClient.isApproved ||
@@ -196,6 +294,7 @@ class VoiceRelayNoticeRuntime(context: Context) : NexusPluginCallbacks {
             return
         }
 
+        playbackFinished = false
         pendingRecording = null
         recordingStarted = false
         keepRecordingOnStop = true
@@ -430,14 +529,19 @@ class VoiceRelayNoticeRuntime(context: Context) : NexusPluginCallbacks {
             NexusCard(
                 title = title,
                 lines = detail.split('\n').map { it.clean(180) }.take(3),
-                footer = if (sending) "please keep Voice Relay open" else "back",
+                footer = when {
+                    playing -> "back stops playback"
+                    playbackFinished -> "tap voice reply · back close"
+                    sending -> "please keep Voice Relay open"
+                    else -> "back"
+                },
                 handlesBack = true,
             ),
         )
     }
 
     private fun closeClientIfIdle() {
-        if (audio != null || surface != null || pendingRecording != null || sending) return
+        if (audio != null || surface != null || pendingRecording != null || sending || playing) return
         client?.close()
         client = null
         offeredMessage = null
@@ -468,5 +572,8 @@ class VoiceRelayNoticeRuntime(context: Context) : NexusPluginCallbacks {
     private companion object {
         const val PLUGIN_ID = "voicerelay"
         const val ACTION_RECORD = "record_voice_note"
+        const val ACTION_PLAY = "play_voice_note"
+        const val REPLAY_WINDOW_MS = 120_000L
+        val RETRY_DELAYS_MS = listOf(250L, 750L, 1_500L, 3_000L, 5_000L, 8_000L, 13_000L, 21_000L, 34_000L, 55_000L, 89_000L, 119_000L)
     }
 }
