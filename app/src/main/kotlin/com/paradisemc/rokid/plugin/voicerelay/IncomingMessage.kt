@@ -13,6 +13,10 @@ data class IncomingMessage(
     val shortcutId: String? = null,
     val senderPersonUri: String? = null,
     val senderPersonKey: String? = null,
+    val mediaMimeType: String? = null,
+    val mediaUri: String? = null,
+    val voiceMessage: Boolean = false,
+    val eventTimeMillis: Long = 0L,
     val receivedAt: Long = System.currentTimeMillis(),
 ) {
     /** Prefer conversation identity so repeated messages update one inbox row. */
@@ -143,6 +147,10 @@ object PendingMessageStore {
         .put("shortcutId", message.shortcutId)
         .put("senderPersonUri", message.senderPersonUri)
         .put("senderPersonKey", message.senderPersonKey)
+        .put("mediaMimeType", message.mediaMimeType)
+        .put("mediaUri", message.mediaUri)
+        .put("voiceMessage", message.voiceMessage)
+        .put("eventTimeMillis", message.eventTimeMillis)
         .put("receivedAt", message.receivedAt)
 
     private fun fromJson(raw: String): IncomingMessage? = runCatching {
@@ -156,6 +164,10 @@ object PendingMessageStore {
             shortcutId = json.optNullableString("shortcutId"),
             senderPersonUri = json.optNullableString("senderPersonUri"),
             senderPersonKey = json.optNullableString("senderPersonKey"),
+            mediaMimeType = json.optNullableString("mediaMimeType"),
+            mediaUri = json.optNullableString("mediaUri"),
+            voiceMessage = json.optBoolean("voiceMessage", false),
+            eventTimeMillis = json.optLong("eventTimeMillis", 0L),
             receivedAt = json.optLong("receivedAt", System.currentTimeMillis()),
         )
     }.getOrNull()
