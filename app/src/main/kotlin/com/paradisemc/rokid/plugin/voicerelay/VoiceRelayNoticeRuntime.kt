@@ -108,6 +108,13 @@ class VoiceRelayNoticeRuntime(context: Context) : NexusPluginCallbacks {
 
     private fun tryShowPending() {
         val message = pendingMessage ?: return
+        if (message.app != "Test" && (!NotificationDisplayPreferences.appEnabled(appContext, message.packageName) ||
+            !NotificationDisplayPreferences.shouldShowOnGlasses(appContext) ||
+            !NotificationDisplayPreferences.nexusNotices(appContext) ||
+            com.paradisemc.rokid.plugin.voicerelay.aiui.AiuiBridgeService.hasActivePage())) {
+            pendingMessage = null
+            return
+        }
         val currentClient = client ?: return
         if (!currentClient.isApproved) return
         if (!currentClient.hasCapability(PluginCapability.SURFACES)) return

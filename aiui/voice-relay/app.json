@@ -1,0 +1,8 @@
+{
+  "pages": ["pages/index/index"],
+  "permissions": ["RECORD_AUDIO"],
+  "window": {
+    "navigationBarTitleText": "Voice Relay",
+    "viewport": { "width": "device-width" }
+  }
+}

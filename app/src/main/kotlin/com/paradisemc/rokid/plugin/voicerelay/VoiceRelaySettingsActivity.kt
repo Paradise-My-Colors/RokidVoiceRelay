@@ -36,7 +36,10 @@ class VoiceRelaySettingsActivity : Activity() {
         setContentView(scroll)
 
         content.addView(text("Rokid Voice Relay", 26f, true))
-        content.addView(text("Beta v0.8 · reliability + private backdrop + voice playback", 15f, false))
+        content.addView(text("Beta v0.9 · AIUI + Nexus", 15f, false))
+        content.addView(button("AIUI bridge and all notification settings") {
+            startActivity(Intent(this, com.paradisemc.rokid.plugin.voicerelay.aiui.AiuiSettingsActivity::class.java))
+        })
         content.addView(
             text(
                 "Glasses transport: Nexus Bluetooth/CXR/SPP. Voice Relay itself does not require Wi-Fi; the phone still needs internet for Telegram/WhatsApp services.",

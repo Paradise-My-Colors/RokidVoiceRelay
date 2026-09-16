@@ -6,7 +6,7 @@ import com.paradisemc.rokid.plugin.voicerelay.PublishedRecording
 
 object TelegramVoiceSender {
     fun isTelegram(target: IncomingMessage?): Boolean =
-        target?.packageName?.startsWith("org.telegram.") == true
+        target?.packageName?.startsWith("org.telegram.") == true || target?.packageName == "org.thunderdog.challegram"
 
     fun send(
         context: Context,

@@ -216,6 +216,84 @@ class TelegramClientManager private constructor(context: Context) {
         }
     }
 
+    /** AIUI never resolves a recipient by a display-name guess. */
+    private fun exactChat(target: IncomingMessage, callback: (Result<Long>) -> Unit) {
+        if (!isReady()) { callback(Result.failure(IllegalStateException("Complete Telegram login on the phone"))); return }
+        val candidate = Regex("^ndid_(-?\\d+)$").matchEntire(target.shortcutId.orEmpty())?.groupValues?.get(1)?.toLongOrNull()
+        if (candidate == null || candidate == 0L) {
+            callback(Result.failure(IllegalStateException("No verified Telegram chat ID. Receive a fresh notification in the official Telegram app."))); return
+        }
+        val query = if (candidate > 0) JSONObject().put("@type", "createPrivateChat").put("user_id", candidate).put("force", false)
+                    else JSONObject().put("@type", "getChat").put("chat_id", candidate)
+        request(query) { chat ->
+            if (chat.optString("@type") == "error") callback(Result.failure(tdError(chat)))
+            else if (chat.optLong("id") != candidate || !sameTitle(chat.optString("title"), target.sender)) {
+                callback(Result.failure(IllegalStateException("Telegram recipient could not be verified. Use the same Telegram account and receive a fresh notification.")))
+            } else callback(Result.success(candidate))
+        }
+    }
+
+    fun listVoiceNotes(target: IncomingMessage, callback: (Result<JSONArray>) -> Unit) {
+        exactChat(target) { resolved -> resolved.fold(onFailure = { callback(Result.failure(it)) }, onSuccess = { chat ->
+            val query = JSONObject().put("@type", "getChatHistory").put("chat_id", chat).put("from_message_id", 0).put("offset", 0).put("limit", 50).put("only_local", false)
+            request(query) { result ->
+                if (result.optString("@type") == "error") { callback(Result.failure(tdError(result))); return@request }
+                val output = JSONArray(); val messages = result.optJSONArray("messages") ?: JSONArray()
+                for (i in 0 until messages.length()) {
+                    val message = messages.getJSONObject(i); val content = message.optJSONObject("content") ?: continue
+                    if (message.optBoolean("is_outgoing") || content.optString("@type") != "messageVoiceNote") continue
+                    val voice = content.optJSONObject("voice_note") ?: continue
+                    if (!message.isNull("self_destruct_type")) continue
+                    output.put(JSONObject().put("message", message.optLong("id").toString()).put("date", message.optLong("date"))
+                        .put("seconds", voice.optInt("duration")).put("label", "Voice note"))
+                    if (output.length() >= 10) break
+                }
+                callback(Result.success(output))
+            }
+        }) }
+    }
+
+    fun downloadVoice(target: IncomingMessage, messageId: Long, callback: (Result<File>) -> Unit) {
+        exactChat(target) { resolved -> resolved.fold(onFailure = { callback(Result.failure(it)) }, onSuccess = { chat ->
+            request(JSONObject().put("@type", "getMessage").put("chat_id", chat).put("message_id", messageId)) { message ->
+                val content = message.optJSONObject("content")
+                val voice = content?.optJSONObject("voice_note")?.optJSONObject("voice")
+                if (content?.optString("@type") != "messageVoiceNote" || voice == null || !message.isNull("self_destruct_type")) {
+                    callback(Result.failure(IllegalStateException("This Telegram voice note is no longer available"))); return@request
+                }
+                if (voice.optLong("size") > 12 * 1024 * 1024) { callback(Result.failure(IllegalStateException("Voice note exceeds 12 MB"))); return@request }
+                request(JSONObject().put("@type", "downloadFile").put("file_id", voice.optInt("id")).put("priority", 16)
+                    .put("offset", 0).put("limit", 0).put("synchronous", true)) { result ->
+                    val local = result.optJSONObject("local")
+                    val file = File(local?.optString("path").orEmpty())
+                    if (local?.optBoolean("is_downloading_completed") == true && file.isFile && file.length() <= 12 * 1024 * 1024) callback(Result.success(file))
+                    else callback(Result.failure(IllegalStateException("Telegram audio is still downloading or unavailable. Try Listen again.")))
+                }
+            }
+        }) }
+    }
+
+    fun sendAiui(target: IncomingMessage, file: File?, mode: String, text: String, seconds: Int, callback: (Result<Long>) -> Unit) {
+        exactChat(target) { resolved -> resolved.fold(onFailure = { callback(Result.failure(it)) }, onSuccess = { chat ->
+            val localFile = JSONObject().put("@type", "inputFileLocal").put("path", file?.absolutePath.orEmpty())
+            val content = when (mode) {
+                "text" -> JSONObject().put("@type", "inputMessageText").put("text", JSONObject().put("@type", "formattedText").put("text", text).put("entities", JSONArray()))
+                "file" -> JSONObject().put("@type", "inputMessageDocument").put("document", localFile).put("disable_content_type_detection", true)
+                "voice" -> JSONObject().put("@type", "inputMessageVoiceNote").put("voice_note", localFile).put("duration", seconds.coerceAtLeast(1)).put("waveform", "")
+                else -> { callback(Result.failure(IllegalArgumentException("Unknown reply type"))); return@fold }
+            }
+            request(JSONObject().put("@type", "sendMessage").put("chat_id", chat).put("input_message_content", content)) { response ->
+                if (response.optString("@type") == "error") { callback(Result.failure(tdError(response))); return@request }
+                val messageId = response.optLong("id")
+                if (messageId == 0L) { callback(Result.failure(IllegalStateException("Telegram returned no message ID"))); return@request }
+                if (response.optJSONObject("sending_state") == null) { callback(Result.success(chat)); return@request }
+                val key = sendKey(chat, messageId)
+                pendingSends[key] = callback
+                scheduler.schedule({ pendingSends.remove(key)?.invoke(Result.failure(IllegalStateException("Delivery not confirmed. Check Telegram before sending again."))) }, 60, TimeUnit.SECONDS)
+            }
+        }) }
+    }
+
     private fun resolveChat(target: IncomingMessage, callback: (Result<Long>) -> Unit) {
         val shortcut = target.shortcutId.orEmpty()
         val candidate = Regex("^ndid_(-?\\d+)$").matchEntire(shortcut)
@@ -384,7 +462,7 @@ class TelegramClientManager private constructor(context: Context) {
                     .put("system_language_code", Locale.getDefault().toLanguageTag().ifBlank { "en" })
                     .put("device_model", "${Build.MANUFACTURER} ${Build.MODEL}".trim().ifBlank { "Android" })
                     .put("system_version", "Android ${Build.VERSION.RELEASE}")
-                    .put("application_version", "0.4.0")
+                    .put("application_version", "0.9.0-aiui-beta")
 
                 request(parameters) { response ->
                     if (response.optString("@type") == "error") setError(response)
