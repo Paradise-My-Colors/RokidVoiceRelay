@@ -1,81 +1,21 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
-
-    <uses-permission android:name="android.permission.INTERNET" />
-    <uses-permission android:name="android.permission.REQUEST_DELETE_PACKAGES" />
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
-
-    <queries>
-        <package android:name="com.whatsapp" />
-        <package android:name="com.whatsapp.w4b" />
-        <intent>
-            <action android:name="com.anezium.rokidbus.action.HUB" />
-        </intent>
-        <intent>
-            <action android:name="android.provider.action.VOICE_SEND_MESSAGE_TO_CONTACTS" />
-            <data android:mimeType="audio/*" />
-        </intent>
-    </queries>
-
-    <application
-        android:allowBackup="false"
-        android:label="@string/app_name"
-        android:supportsRtl="true"
-        android:theme="@android:style/Theme.Material.Light.NoActionBar">
-
-        <activity
-            android:name=".telegram.TelegramSetupActivity"
-            android:exported="false" />
-
-        <activity
-            android:name=".VoiceRelaySettingsActivity"
-            android:exported="true" />
-
-        <service
-            android:name=".VoiceRelayNotificationListener"
-            android:exported="true"
-            android:label="Voice Relay"
-            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+    <uses-permission android:name="android.permission.INTERNET" />
+    <application android:allowBackup="true" android:label="Rokid Camera Remote" android:theme="@style/Theme.RokidCameraRemote" android:networkSecurityConfig="@xml/network_security_config" android:usesCleartextTraffic="true">
+        <activity android:name=".CameraActivity" android:screenOrientation="portrait" android:exported="true">
             <intent-filter>
-                <action android:name="android.service.notification.NotificationListenerService" />
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
-        </service>
-
-        <service
-            android:name=".VoiceRelayPluginService"
-            android:exported="true"
-            android:foregroundServiceType="specialUse">
-            <property
-                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
-                android:value="glasses-session" />
-            <intent-filter>
-                <action android:name="com.anezium.rokidbus.action.PLUGIN" />
-            </intent-filter>
-            <meta-data
-                android:name="com.anezium.rokidbus.plugin.ID"
-                android:value="voicerelay" />
-            <meta-data
-                android:name="com.anezium.rokidbus.plugin.DISPLAY_NAME"
-                android:value="Voice Relay" />
-            <meta-data
-                android:name="com.anezium.rokidbus.plugin.ICON"
-                android:value="mic" />
-            <meta-data
-                android:name="com.anezium.rokidbus.plugin.API_VERSION"
-                android:value="3" />
-            <meta-data
-                android:name="com.anezium.rokidbus.plugin.CAPABILITIES"
-                android:value="surfaces,microphone" />
-            <meta-data
-                android:name="com.anezium.rokidbus.plugin.RECEIVE_PREFIXES"
-                android:value="/plugin/voicerelay,/system/plugin,/audio" />
-            <meta-data
-                android:name="com.anezium.rokidbus.plugin.SETTINGS_ACTIVITY"
-                android:value=".VoiceRelaySettingsActivity" />
-            <meta-data
-                android:name="com.anezium.rokidbus.plugin.LAUNCHABLE"
-                android:value="true" />
+        </activity>
+        <service android:name=".RemoteControllerService" android:exported="false" android:foregroundServiceType="specialUse">
+            <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE" android:value="Local command bridge between the user's Rokid glasses and camera activity" />
         </service>
     </application>
 </manifest>

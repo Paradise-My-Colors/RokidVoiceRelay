@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android" android:layout_width="match_parent" android:layout_height="match_parent" android:background="#000000">
+    <androidx.camera.view.PreviewView android:id="@+id/previewView" android:layout_width="match_parent" android:layout_height="match_parent" />
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_gravity="top" android:orientation="vertical" android:padding="16dp" android:background="#66000000">
+        <TextView android:id="@+id/statusText" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="PHOTO • Rokid ready" android:textColor="#FFFFFF" android:textSize="18sp" android:textStyle="bold" />
+        <Spinner android:id="@+id/viewfinderSpinner" android:layout_width="match_parent" android:layout_height="48dp" />
+        <Switch android:id="@+id/remoteSwitch" android:layout_width="match_parent" android:layout_height="48dp" android:text="Rokid remote service" android:textColor="#FFFFFF" android:checked="true" />
+        <Button android:id="@+id/overlayButton" android:layout_width="match_parent" android:layout_height="48dp" android:text="Enable Appear on top" />
+    </LinearLayout>
+    <TextView android:id="@+id/countdownText" android:layout_width="match_parent" android:layout_height="match_parent" android:gravity="center" android:textColor="#FFFFFF" android:textSize="96sp" android:textStyle="bold" android:visibility="gone" />
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_gravity="bottom" android:gravity="center" android:orientation="horizontal" android:padding="24dp">
+        <Button android:id="@+id/modeButton" android:layout_width="100dp" android:layout_height="56dp" android:text="PHOTO" />
+        <Button android:id="@+id/shutterButton" android:layout_width="96dp" android:layout_height="72dp" android:layout_marginStart="12dp" android:layout_marginEnd="12dp" android:text="SHOOT" />
+        <Button android:id="@+id/lensButton" android:layout_width="100dp" android:layout_height="56dp" android:text="FLIP" />
+    </LinearLayout>
+</FrameLayout>
