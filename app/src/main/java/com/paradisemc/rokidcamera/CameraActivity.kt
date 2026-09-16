@@ -43,6 +43,7 @@ class CameraActivity : AppCompatActivity() {
     private val permissionsLauncher = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { results ->
         val cameraGranted = ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED || results[Manifest.permission.CAMERA] == true
         if (cameraGranted) startCamera()
+        startRemoteService()
     }
 
     private val commandListener: (RemoteCommand) -> Unit = { cmd -> runOnUiThread { when (cmd) {
@@ -82,7 +83,11 @@ class CameraActivity : AppCompatActivity() {
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) needed += Manifest.permission.CAMERA
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) needed += Manifest.permission.RECORD_AUDIO
         if (Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) needed += Manifest.permission.POST_NOTIFICATIONS
-        if (needed.isEmpty()) startCamera() else permissionsLauncher.launch(needed.toTypedArray())
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) needed += Manifest.permission.BLUETOOTH_CONNECT
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_ADVERTISE) != PackageManager.PERMISSION_GRANTED) needed += Manifest.permission.BLUETOOTH_ADVERTISE
+        }
+        if (needed.isEmpty()) { startCamera(); startRemoteService() } else permissionsLauncher.launch(needed.toTypedArray())
     }
 
     private fun requestOverlayPermission() {
