@@ -28,17 +28,18 @@ class AiuiSettingsActivity : Activity() {
         fun label(value: String, size: Float = 16f) { content.addView(TextView(this).apply { text = value; textSize = size; setPadding(0, 16, 0, 12) }) }
         fun button(value: String, action: () -> Unit) { content.addView(Button(this).apply { text = value; setOnClickListener { action() } }) }
         label("Voice Relay · AIUI", 27f)
-        label("0.9 test build · Telegram and WhatsApp")
+        label("0.9.1 test build · Pairing and runtime fixes")
         label("Installs alongside Voice Relay v0.8. Enable notification access and Telegram login here. To avoid duplicate alerts, disable notification access for the older Voice Relay and enable only Voice Relay AIUI. Keep the old app installed if you want to return to it.")
         status = TextView(this).apply { textSize = 16f }; content.addView(status)
         button("1. Enable notification access") { startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) }
         button("2. Start Bluetooth bridge") { startBridge(false) }
         button("3. Pair glasses (first time)") { startBridge(true) }
+        button("Restart Bluetooth bridge") { startBridge(false, true) }
         button("Approve glasses") {
             AiuiBridgeService.instance?.approve()
             status.text = AiuiBridgeService.status
         }
-        label("Open the AIUI agent on your glasses and tap Connect. Confirm Android's Bluetooth pairing prompt. Then tap Approve glasses here and Connect again on the glasses.")
+        label("Open Voice Relay 0.9.1 on your glasses and tap Connect once. Keep that page open. Tap Approve glasses here, then confirm any Android Bluetooth pairing prompt. The glasses continue automatically; Back cancels.")
         button("Telegram setup / login") { startActivity(Intent(this, TelegramSetupActivity::class.java)) }
         button("Finish reply on phone") { PhoneHandoff.openLatest(this) }
         label("Notification settings", 22f)
@@ -64,17 +65,18 @@ class AiuiSettingsActivity : Activity() {
         }
     }
     private var pairingAfterPermission = false
-    private fun startBridge(pair: Boolean) {
+    private var restartAfterPermission = false
+    private fun startBridge(pair: Boolean, restart: Boolean = false) {
         val permissions = mutableListOf<String>()
         if (Build.VERSION.SDK_INT >= 31) permissions.addAll(listOf(Manifest.permission.BLUETOOTH_CONNECT, Manifest.permission.BLUETOOTH_ADVERTISE))
         if (Build.VERSION.SDK_INT >= 33) permissions.add(Manifest.permission.POST_NOTIFICATIONS)
         val missing = permissions.filter { checkSelfPermission(it) != PackageManager.PERMISSION_GRANTED }
-        if (missing.isNotEmpty()) { pairingAfterPermission = pair; requestPermissions(missing.toTypedArray(), 91); return }
-        startForegroundService(Intent(this, AiuiBridgeService::class.java).apply { if (pair) action = "pair" })
+        if (missing.isNotEmpty()) { pairingAfterPermission = pair; restartAfterPermission = restart; requestPermissions(missing.toTypedArray(), 91); return }
+        startForegroundService(Intent(this, AiuiBridgeService::class.java).apply { if (restart) action = "restart" else if (pair) action = "pair" })
     }
     override fun onRequestPermissionsResult(code: Int, permissions: Array<out String>, results: IntArray) {
         super.onRequestPermissionsResult(code, permissions, results)
-        if (code == 91 && results.isNotEmpty() && results.all { it == PackageManager.PERMISSION_GRANTED }) startBridge(pairingAfterPermission)
+        if (code == 91 && results.isNotEmpty() && results.all { it == PackageManager.PERMISSION_GRANTED }) startBridge(pairingAfterPermission, restartAfterPermission)
         else status.text = "Allow Nearby devices and notifications, then tap Start again."
     }
     override fun onResume() { super.onResume(); handler.post(refresh) }

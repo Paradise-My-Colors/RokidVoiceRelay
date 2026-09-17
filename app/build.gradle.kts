@@ -11,8 +11,8 @@ android {
         applicationId = "com.paradisemc.rokid.aiui.voicerelay"
         minSdk = 30
         targetSdk = 36
-        versionCode = 9
-        versionName = "0.9.0-aiui-beta"
+        versionCode = 10
+        versionName = "0.9.1-aiui-beta"
     }
 
     // CI must use the restored Voice Relay key, not a runner-generated default.

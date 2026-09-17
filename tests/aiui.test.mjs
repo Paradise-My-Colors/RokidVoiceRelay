@@ -2,9 +2,10 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import vm from 'node:vm';
-import { webcrypto } from 'node:crypto';
+import { webcrypto, createHash } from 'node:crypto';
 import { Bridge, frames, offsetPacket } from '../aiui/voice-relay/lib/bridge.js';
 import { visibleRows, keyAction, receiptTitle } from '../aiui/voice-relay/lib/ui.js';
+import { checksum, identifier, errorMessage } from '../aiui/voice-relay/lib/runtime.js';
 let passed = 0;
 async function test(name, body) { await body(); passed++; process.stdout.write('PASS ' + name + '\n'); }
 const root = path.resolve('aiui/voice-relay');
@@ -20,7 +21,7 @@ class FakeRecorder {
   stop() { this.state = 'inactive'; this.ondataavailable({ data: new Blob(['OggS test audio']) }); queueMicrotask(() => this.onstop()); }
 }
 const wx = { getStorageSync: k => storage.get(k), setStorageSync: (k, v) => storage.set(k, v), removeStorageSync: k => storage.delete(k), exitMiniProgram() {} };
-const ctx = vm.createContext({ console, setTimeout, clearTimeout, setInterval, clearInterval, Date, Promise, Blob, TextEncoder, TextDecoder, Uint8Array, ArrayBuffer, DataView, crypto: webcrypto, MediaRecorder: FakeRecorder,
+const ctx = vm.createContext({ console, setTimeout, clearTimeout, setInterval, clearInterval, Date, Promise, Blob, TextEncoder, TextDecoder, Uint8Array, ArrayBuffer, DataView, MediaRecorder: FakeRecorder,
   navigator: { bluetooth: null, mediaDevices: { async getUserMedia() { return { getTracks: () => [{ stop() { stopped++; } }] }; } } } });
 const modules = new Map();
 async function moduleFor(spec, referencing) {
@@ -99,7 +100,8 @@ function fakeBridge(chunkSize) {
   async function handle(q) {
     lastOperation = q.op;
     let value;
-    if (q.op === 'download') value = { size: audio.length, sha256: await hash(audio), mime: 'audio/ogg' };
+    if (q.op === 'hello') value = { version: 2, approved: true, mtu: 23 };
+    else if (q.op === 'download') value = { size: audio.length, sha256: await hash(audio), mime: 'audio/ogg' };
     else if (q.op === 'begin') { uploaded = []; value = { upload: 'test-upload' }; }
     else if (q.op === 'seal') { assert.equal(q.sha256, await hash(new Uint8Array(uploaded))); value = {}; }
     else value = { text: 'مرحبا '.repeat(30), request: q.op };
@@ -175,6 +177,124 @@ await test('Late microphone permission cannot replace the current capture', asyn
     assert.equal(p.stream, currentStream); assert.equal(p.recorder, currentRecorder); assert.ok(oldStopped);
     p.finishCapture(); await new Promise(r => setTimeout(r, 10)); assert.equal(p.draft.target.id, 'two');
   } finally { ctx.navigator.mediaDevices.getUserMedia = original; p.cleanup(); }
+});
+
+await test('Page and send IDs work with no global crypto in the glasses VM', async () => {
+  assert.equal(vm.runInContext('typeof crypto', ctx), 'undefined');
+  const p = page(); p.current = { id: 'one', sender: 'Alice', app: 'Telegram' };
+  p.draft = { target: p.current, text: 'Review me' }; p.sendMode = 'text';
+  p.bridge.rpc = async q => { assert.match(q.operation, /^[a-f0-9]{32,}$/); return { state: 'sent', detail: 'Sent' }; };
+  await p.send(); assert.equal(p.screen, 'receipt'); p.cleanup();
+});
+await test('Portable audio hashing matches standard SHA-256 without Web Crypto', async () => {
+  const portableChecksum = modules.get(path.join(root, 'lib/runtime.js')).namespace.checksum;
+  for (const n of [0, 1, 3, 55, 56, 63, 64, 65, 127, 128, 4096, 131073]) {
+    const input = new Uint8Array(n).map((_, i) => i % 251);
+    assert.equal(await portableChecksum(input), createHash('sha256').update(input).digest('hex'));
+  }
+  assert.equal(await checksum(new TextEncoder().encode('abc')), 'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad');
+  const ids = new Set(Array.from({ length: 1000 }, () => identifier(wx))); assert.equal(ids.size, 1000);
+});
+
+const fastTiming = { scan: 100, connect: 25, discovery: 100, approval: 120, poll: 2, retry: 1, settle: 1, disconnect: 10 };
+async function until(condition) {
+  for (let i = 0; i < 100; i++) { if (condition()) return; await new Promise(resolve => setTimeout(resolve, 2)); }
+  throw new Error('Fixture did not reach expected state');
+}
+function connectionFixture(options = {}) {
+  const wire = fakeBridge(22);
+  const counts = { scans: 0, connects: 0, disconnects: 0, reads: 0, secureWrites: 0, stops: 0 };
+  const servers = []; const pending = [];
+  let allowed = false;
+  const bluetooth = {
+    async getAvailability() { return true; },
+    async getDevices() { throw new Error('A stale device list must not be reused'); },
+    async scanDevices() {
+      counts.scans++;
+      const server = {
+        connected: false,
+        async connect() {
+          const attempt = ++counts.connects;
+          if (attempt <= (options.failures || 0)) throw options.failure || new Error('java.lang.IllegalStateException: Bluetooth connection failed with status 8');
+          if (options.lateFirst && attempt === 1) return new Promise(resolve => pending.push(() => { this.connected = true; resolve(this); }));
+          this.connected = true; return this;
+        },
+        async disconnect() { counts.disconnects++; this.connected = false; },
+        async getPrimaryService() {
+          if (options.delayDiscovery) await new Promise(resolve => pending.push(resolve));
+          return { async getCharacteristic(uuid) {
+            if (uuid.includes('9004')) return { async readValue() {
+              counts.reads++; allowed = counts.reads > (options.approvalReads || 0);
+              return [86, 82, 2, allowed ? 3 : 0, 23, 0];
+            } };
+            if (uuid.includes('9001')) return { async writeValueWithResponse(data) {
+              assert.ok(allowed, 'Sensitive command attempted before approval'); counts.secureWrites++;
+              return wire.b.control.writeValueWithResponse(data);
+            } };
+            if (uuid.includes('9002')) return wire.b.response;
+            return wire.b.audio;
+          } };
+        }
+      };
+      servers.push(server);
+      return {
+        onDeviceFound(callback) { queueMicrotask(() => callback({ device: { id: 'phone-one', gatt: server } })); },
+        stop() { counts.stops++; if (options.rejectStop) return Promise.reject(new Error('Native scan already stopped')); }
+      };
+    }
+  };
+  const values = new Map();
+  const memory = { getStorageSync: key => values.get(key), setStorageSync: (key, value) => values.set(key, value), removeStorageSync: key => values.delete(key) };
+  return { b: new Bridge(bluetooth, memory, fastTiming), counts, servers, pending };
+}
+await test('Status 8 closes the failed GATT handle and retries with a fresh scan', async () => {
+  const f = connectionFixture({ failures: 1, rejectStop: true });
+  await f.b.connect(); assert.equal(f.counts.connects, 2); assert.equal(f.counts.scans, 2);
+  assert.equal(f.servers[0].connected, false); assert.ok(f.b.connected()); await f.b.close();
+});
+await test('A failed connection can be retried without a stale server or rejected queue', async () => {
+  const f = connectionFixture({ failures: 2 });
+  await assert.rejects(f.b.connect(), /status 8/); assert.equal(f.b.server, null);
+  await f.b.connect(); assert.equal(f.counts.connects, 3); assert.ok(f.b.connected()); await f.b.close();
+});
+await test('Duplicate Connect presses share one connection and wait for phone approval', async () => {
+  const f = connectionFixture({ approvalReads: 3 }); const progress = [];
+  const first = f.b.connect(value => progress.push(value)); const second = f.b.connect();
+  assert.equal(first, second); await first;
+  assert.equal(f.counts.connects, 1); assert.equal(f.counts.reads, 4);
+  assert.ok(progress.some(value => value.includes('Approve glasses'))); assert.ok(f.counts.secureWrites > 0); await f.b.close();
+});
+await test('A late timed-out GATT result is closed without replacing the new connection', async () => {
+  const f = connectionFixture({ lateFirst: true }); await f.b.connect();
+  assert.equal(f.counts.connects, 2); const active = f.b.server;
+  f.pending[0](); await new Promise(resolve => setTimeout(resolve, 5));
+  assert.equal(f.servers[0].connected, false); assert.equal(f.b.server, active); assert.ok(f.b.connected()); await f.b.close();
+});
+await test('Cancellation during discovery cannot restore a closed connection', async () => {
+  const f = connectionFixture({ delayDiscovery: true }); const work = f.b.connect();
+  await until(() => f.pending.length === 1); const cancelled = assert.rejects(work, /cancelled/);
+  await f.b.close(); f.pending[0](); await cancelled;
+  assert.equal(f.b.server, null); assert.equal(f.b.control, null);
+});
+await test('Back cancels approval and late callbacks do not replace the offline screen', async () => {
+  const f = connectionFixture({ approvalReads: 999 }); const p = page(); p.bridge = f.b;
+  const connecting = p.connect(); await until(() => f.counts.reads > 0); p.back(); await connecting;
+  assert.equal(p.screen, 'offline'); assert.equal(p.data.busy, false); assert.equal(f.counts.secureWrites, 0); p.cleanup();
+});
+await test('Native exceptions with unreadable message fields become readable errors', async () => {
+  const hostile = new Proxy({}, { get() { throw new Error('Native property failed'); } });
+  assert.equal(errorMessage(hostile, 'Bluetooth failed'), 'Bluetooth failed');
+  const f = connectionFixture({ failures: 2, failure: hostile });
+  await assert.rejects(f.b.connect(), /Bluetooth connection failed/); assert.equal(f.b.server, null);
+});
+await test('Old in-flight commands cannot continue on a newly opened connection', async () => {
+  const { b } = fakeBridge(22); const original = b.control; let release, writes = 0;
+  b.control = { async writeValueWithResponse(data) { writes++; await new Promise(resolve => { release = resolve; }); return original.writeValueWithResponse(data); } };
+  const old = b.rpc({ op: 'inbox', text: 'long message '.repeat(20) }); await until(() => !!release);
+  const rejected = assert.rejects(old, /cancelled/); await b.close();
+  const fresh = fakeBridge(22).b; b.server = fresh.server; b.control = fresh.control; b.response = fresh.response; b.audio = fresh.audio;
+  assert.equal((await b.rpc({ op: 'hello' })).approved, true);
+  release(); await rejected; assert.equal(writes, 1); await b.close();
 });
 
 process.stdout.write(`${passed} checks passed. Device rendering, Bluetooth pairing and messaging services require hardware testing.\n`);

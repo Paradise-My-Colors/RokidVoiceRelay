@@ -462,7 +462,7 @@ class TelegramClientManager private constructor(context: Context) {
                     .put("system_language_code", Locale.getDefault().toLanguageTag().ifBlank { "en" })
                     .put("device_model", "${Build.MANUFACTURER} ${Build.MODEL}".trim().ifBlank { "Android" })
                     .put("system_version", "Android ${Build.VERSION.RELEASE}")
-                    .put("application_version", "0.9.0-aiui-beta")
+                    .put("application_version", "0.9.1-aiui-beta")
 
                 request(parameters) { response ->
                     if (response.optString("@type") == "error") setError(response)

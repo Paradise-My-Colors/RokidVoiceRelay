@@ -5,6 +5,7 @@
 import wx from 'wx';
 import { AudioPlayer } from 'audio';
 import { Bridge, identifier, timeout } from '../../lib/bridge.js';
+import { errorMessage } from '../../lib/runtime.js';
 import { keyAction, visibleRows, excerpt, receiptTitle, recordingMime } from '../../lib/ui.js';
 const SETTINGS = [
   ['telegram_enabled', 'Telegram notifications'],
@@ -35,6 +36,7 @@ export default {
   onUnload() { this.alive = false; this.cleanup(); },
   cleanup() {
     this.visible = false; clearInterval(this.pollTimer); this.pollTimer = null;
+    this.runToken = null; this.connectionUiToken = null; this.connectingPage = false;
     this.cancelCapture(); this.stopPlayer();
     if (this.recognition) { try { this.recognition.abort(); } catch (_) {} this.recognition = null; }
     if (this.bridge) this.bridge.close();
@@ -47,31 +49,45 @@ export default {
   paint() { this.update({ rows: visibleRows(this.menu, this.selection), counter: this.menu.length ? (this.selection + 1) + ' / ' + this.menu.length : '' }); },
   offline() {
     this.update({ connected: false, banner: '' });
-    this.show('offline', 'Voice Relay', 'Start the bridge on your phone, then connect.', [row('connect', 'Connect to phone'), row('help', 'Setup help'), row('forget', 'Choose a different phone')]);
+    this.show('offline', 'Voice Relay 0.9.1', 'Start the bridge on your phone, then connect.', [row('connect', 'Connect to phone'), row('help', 'Setup help'), row('forget', 'Choose a different phone')]);
   },
   async run(action, message) {
     if (this.data.busy) return;
+    const token = {}; this.runToken = token;
     this.update({ busy: true, hint: message || 'Working…' });
     try { await action(); }
-    catch (error) { if (this.visible) this.error(error); }
-    finally { this.update({ busy: false, hint: 'Swipe to choose · Tap to select' }); }
+    catch (error) { if (this.visible && this.runToken === token) this.error(error); }
+    finally { if (this.runToken === token) this.update({ busy: false, hint: 'Swipe to choose · Tap to select' }); }
   },
   error(error) {
     this.stopPlayer();
-    const text = error && error.message ? error.message : String(error);
+    const text = errorMessage(error);
     this.show('error', 'Could not complete', text, [row(this.bridge.connected() ? 'inbox' : 'connect', this.bridge.connected() ? 'Back to inbox' : 'Reconnect'), row('help', 'Setup help')]);
     this.update({ banner: '', hint: 'Back returns without sending' });
   },
   connect() { return this.run(async () => {
+    const token = {}; this.connectionUiToken = token; this.connectingPage = true;
+    this.update({ title: 'Connecting', hint: 'Back cancels' });
     try {
-      await this.bridge.connect(); this.update({ connected: true });
+      await this.bridge.connect(detail => { if (this.connectionUiToken === token) this.update({ detail, hint: 'Back cancels · Keep this page open' }); });
+      if (this.connectionUiToken !== token || !this.visible) return;
+      this.update({ connected: true });
       await this.openInbox();
+      if (this.connectionUiToken !== token || !this.visible) return;
+      this.update({ busy: true });
       // A lost send is recovered by receipt lookup, never by automatic resend.
       let operation;
       try { operation = wx.getStorageSync('voice-relay-pending-send'); } catch (_) {}
       if (operation) { this.operation = operation; this.renderReceipt(await this.bridge.rpc({ op: 'receipt', operation })); }
-    } catch (e) { await this.bridge.close(); throw e; }
+    } catch (e) { if (this.connectionUiToken === token) { await this.bridge.close(); throw e; } }
+    finally { if (this.connectionUiToken === token) { this.connectingPage = false; this.connectionUiToken = null; } }
   }, 'Connecting…'); },
+  async cancelConnection() {
+    this.connectionUiToken = null; this.connectingPage = false; this.runToken = null;
+    this.update({ busy: true, hint: 'Closing Bluetooth…' });
+    await this.bridge.close();
+    if (this.visible) this.offline();
+  },
   async openInbox() {
     const list = await this.bridge.rpc({ op: 'inbox' });
     if (!Array.isArray(list)) throw new Error('Invalid inbox from phone');
@@ -139,7 +155,7 @@ export default {
     const choice = this.menu[this.selection]; if (!choice) return;
     const id = choice.id;
     if (id === 'connect') return this.connect();
-    if (id === 'help') return this.show('help', 'Setup', 'Phone: enable notification access, Start bridge, Pair glasses. Here: Connect. Phone: confirm pairing and Approve glasses. Then Connect again.', [row('connect', 'Connect')]);
+    if (id === 'help') return this.show('help', 'Setup 0.9.1', 'Phone: Start bridge, Pair glasses. Here: Connect once and wait. Phone: Approve glasses and confirm any pairing prompt. Connection continues here.', [row('connect', 'Connect')]);
     if (id === 'forget') return this.run(async () => { await this.bridge.forget(); this.offline(); });
     if (id === 'stopRecord') return this.finishCapture();
     if (id === 'stopDictation') { if (this.recognition) this.recognition.stop(); return; }
@@ -292,7 +308,7 @@ export default {
     if (this.operation) { this.renderReceipt(await this.bridge.rpc({ op: 'receipt', operation: this.operation })); return; }
     const draft = this.draft;
     if (this.sendMode !== 'text' && !draft.upload) draft.upload = await this.bridge.upload(draft.target.id, draft.data, p => this.update({ hint: 'Sending recording to phone ' + p + '%' }));
-    this.operation = identifier();
+    this.operation = identifier(wx);
     wx.setStorageSync('voice-relay-pending-send', this.operation);
     const receipt = await this.bridge.rpc({ op: 'send', operation: this.operation, target: draft.target.id, upload: draft.upload || '', mode: this.sendMode, text: draft.text || '' });
     this.renderReceipt(receipt);
@@ -310,6 +326,7 @@ export default {
     this.draft = null;
   },
   back() {
+    if (this.connectingPage) { this.cancelConnection(); return; }
     if (this.screen === 'recording') { this.cancelCapture(); this.detail(); return; }
     if (this.screen === 'dictating') { if (this.recognition) this.recognition.abort(); this.recognition = null; this.draft = null; this.detail(); return; }
     if (this.screen === 'playing') { this.stopPlayer(); if (this.playReturn === 'preview') this.preview(); else this.detail(); return; }

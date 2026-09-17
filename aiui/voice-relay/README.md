@@ -1,6 +1,8 @@
 # Voice Relay AIUI
 
-Standalone AIUI project for the v0.9 Voice Relay Android companion. Import **this folder**, containing `app.json`, into [AIUI Studio Global](https://aiui-global.rokid.com/). No npm install is needed. Use **Build & Review → Package AIX**, then update the glasses resource package from Hi Rokid's Developer settings.
+Standalone AIUI project for the v0.9.1 Voice Relay Android companion. Import **this folder**, containing `app.json`, into [AIUI Studio Global](https://aiui-global.rokid.com/). No npm install is needed. Use **Build & Review → Package AIX**, then update the glasses resource package from Hi Rokid's Developer settings.
+
+Version 0.9.1 removes the global Web Crypto dependency, waits for phone approval without disconnecting, contains native cleanup errors, and retries a failed initial Bluetooth connection once. Install the matching phone update and import all source files, including `lib/runtime.js`. The first screen should show **Voice Relay 0.9.1**. Connect once, keep the page open, then approve on the phone and confirm any Bluetooth pairing prompt. Existing AIUI v0.9 login/settings are retained when its APK is updated in place.
 
 Install the matching **Voice Relay AIUI** Android companion alongside v0.8, enable its notification access, complete its own Telegram login, start its Bluetooth bridge, pair the glasses and approve them on the phone. Disable the older app's notification access to avoid duplicate alerts. Select **Connect to phone** in this agent. Full installation and recovery steps are in `SETUP.md` in the downloadable project.
 

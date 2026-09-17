@@ -1,15 +1,31 @@
-# Voice Relay AIUI — v0.9 test build
+# Voice Relay AIUI — v0.9.1 test build
 
 Built from the final v0.8 Nexus plugin, with an AIUI glasses interface and an Android Bluetooth companion. This is a device-test build: Android compilation and automated behavior checks are covered; real glasses, pairing, playback and live messaging still need device verification.
 
+## Update from AIUI v0.9: crypto and pairing fixes
+
+Update **both** the Android APK and the AIUI project. This update uses the same app ID and explicitly selected signing certificate as the delivered AIUI v0.9 APK, so install it over **Voice Relay AIUI**. Keep the app installed and keep its data to retain your Telegram login and settings. It still installs separately from the older Nexus-only v0.8 app.
+
+1. Close Voice Relay on the glasses. On the phone, install `RokidVoiceRelay-v0.9.1-AIUI-test.apk` as an update to Voice Relay AIUI.
+2. Extract `VoiceRelay-AIUI-v0.9.1.zip`. Replace the existing AIUI project's files with the contents of the extracted `voice-relay` folder, including the new `lib/runtime.js`. Use **Build & Review → Package AIX**, then update the glasses resource package in Hi Rokid. Open Voice Relay and check that its first screen says **Voice Relay 0.9.1**.
+3. Keep the phone unlocked and near the glasses. Open Voice Relay AIUI on the phone. Tap **Restart Bluetooth bridge**, wait for **Bridge ready**, then tap **3. Pair glasses (first time)**.
+4. On the glasses, tap **Connect to phone once** and leave the page open. It should change from finding/connecting to the phone-approval instruction.
+5. On the phone, tap **Approve glasses**. Confirm any Android Bluetooth pairing prompt on either device. Approval completes automatically after bonding. The glasses should continue into the inbox without a second Connect tap. Already-approved glasses can go straight to the inbox.
+
+Back cancels a connection attempt. The app retries a failed initial Bluetooth connection once with a fresh scan, but never retries sending a message automatically. If status 8 remains, exit the glasses app, use Restart Bluetooth bridge, and retry the sequence once. If it still fails, record the exact status at the top of the phone companion and the glasses error. Do not reset all Bluetooth settings or unpair Hi Rokid as a first step.
+
+The old `crypto is not defined` fault came from assuming a browser global existed on the glasses. Version 0.9.1 uses a portable SHA-256 implementation for transfer checksums and persistent counters for send-operation IDs; these IDs are not security keys. Bluetooth bonding and encrypted data characteristics still protect message/audio transfers. A separate public characteristic exposes only six bytes of protocol and approval status, allowing setup to finish before sensitive commands are attempted. Native callback/cleanup errors are contained, and old connection attempts cannot overwrite a new session.
+
+Status 8 during connection is Android's connection-timeout status; it does not identify one unique cause. The changed pairing sequence addresses an app-side timing issue but still needs confirmation on your phone/glasses. [Android Bluetooth status definitions](https://android.googlesource.com/platform/packages/modules/Bluetooth/+/refs/heads/main/system/stack/include/gatt_api.h).
+
 ## Install the two parts
 
-1. **On the Android phone:** install `RokidVoiceRelay-v0.9-AIUI-test.apk` as the separate **Voice Relay AIUI** companion. Keep v0.8 installed if you want to return to it. The new app has its own package ID and storage; it does not replace v0.8 or inherit its Telegram session.
+1. **On the Android phone:** install `RokidVoiceRelay-v0.9.1-AIUI-test.apk` as the separate **Voice Relay AIUI** companion. Keep v0.8 installed if you want to return to it. The new app has its own package ID and storage; it does not replace v0.8 or inherit its Telegram session.
 2. Open **Voice Relay AIUI** on the phone. Tap **1. Enable notification access** and enable **Voice Relay AIUI** in Android's list. Disable access for the older **Voice Relay** to avoid duplicate alerts. Return and tap **2. Start Bluetooth bridge**. Allow Nearby devices and notifications. Leave Bluetooth enabled. If using background Nexus popups, approve the new **Voice Relay AIUI** plugin in Nexus with Surfaces and Microphone access and disable the older Voice Relay plugin/stock relay for these notifications.
 3. Open **Telegram setup / login**, enter your own Telegram API credentials and complete login on the phone using the same Telegram account that receives the notifications. This new companion needs its own session even when v0.8 is already connected. These credentials are not included in the project.
-4. **On a computer:** extract `VoiceRelay-AIUI-v0.9.zip`. Open [AIUI Studio Global](https://aiui-global.rokid.com/), sign in to your Rokid account, choose **Local import**, and select the extracted `voice-relay` folder containing `app.json`. Alternatively, import the `aiui/voice-relay` subdirectory from the repository's `codex/aiui-voice-relay-0.9` branch. Do not import the Android repository root.
+4. **On a computer:** extract `VoiceRelay-AIUI-v0.9.1.zip`. Open [AIUI Studio Global](https://aiui-global.rokid.com/), sign in to your Rokid account, choose **Local import**, and select the extracted `voice-relay` folder containing `app.json`. Alternatively, import the `aiui/voice-relay` subdirectory from the repository's `codex/aiui-voice-relay-0.9` branch. Do not import the Android repository root.
 5. In Studio, use **Build & Review → Package AIX**. In the Hi Rokid phone app, use **Settings → Developer → Update glasses resource package**. Use the same Rokid account in both places and wait for the successful download message. Say **“Hi Rokid, open Voice Relay.”** This follows [Rokid's official device-debugging workflow](https://github.com/jsar-project/AIUI/blob/main/documentation/0-guide/quickstart/quickstart.en-US.md). Store publication is separate and is not required for this development workflow.
-6. In the phone companion, tap **3. Pair glasses (first time)**. Within 60 seconds, choose **Connect to phone** in the glasses app. Confirm Android's Bluetooth pairing request. Tap **Approve glasses** in the companion, then **Connect to phone** again on the glasses. Pairing and approval are needed once per glasses device.
+6. In the phone companion, tap **3. Pair glasses (first time)**. Within three minutes, choose **Connect to phone** in the glasses app and leave the page open. Tap **Approve glasses** in the phone companion and confirm any Android Bluetooth pairing prompt. Approval completes automatically and the glasses continue into the inbox. Pairing and approval are needed once per glasses device.
 
 The phone must support Bluetooth LE peripheral advertising. Android 11 or later is required. The glasses runtime must expose AIUI Bluetooth, microphone capture and AudioPlayer. The phone needs Internet for Telegram and WhatsApp; the glasses-to-phone bridge uses Bluetooth and has no IP address to configure.
 
@@ -58,7 +74,7 @@ The AIUI page refreshes alert status while open. It does not promise to wake its
 ## Recovery
 
 - **Phone not found:** keep the phone nearby; open the companion, start the bridge and retry Connect. Check Bluetooth and Nearby devices permission. If Android stops the bridge, use **Android battery settings** to allow it to keep running, then restart it. The service is not automatically restarted at phone boot.
-- **Pairing/approval fails:** tap Pair glasses again to reopen the 60-second approval window. If necessary, use **Forget approved glasses** on the phone and **Choose a different phone** in AIUI, then repeat pairing.
+- **Pairing/approval fails:** use **Restart Bluetooth bridge**, then Pair glasses to reopen the three-minute approval window. Connect once on the glasses, keep the page open and approve on the phone. If necessary, use **Forget approved glasses** on the phone and **Choose a different phone** in AIUI, then repeat app approval.
 - **No conversations:** receive a fresh notification after granting access. Turn on the corresponding app toggle and use Refresh inbox. A muted chat that never posts a phone notification will not enter this notification-based inbox automatically.
 - **Telegram recipient cannot be verified:** check the companion's Telegram account and receive a fresh notification from the official Telegram app. The app stops instead of choosing a chat by name.
 - **No Telegram voice notes:** open the chat in Telegram, let it load, receive a fresh voice note and retry Listen. This build searches recent history, not an entire chat archive.
