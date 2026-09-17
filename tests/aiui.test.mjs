@@ -140,4 +140,41 @@ await test('Bad audio hash is rejected, not played', async () => {
   b.readAt = async (offset, media) => { const data = await read(offset, media); if (media && offset === 0) data[0] ^= 1; return data; };
   await assert.rejects(() => b.downloadAudio('one', 'voice'), /integrity/); await b.close();
 });
+
+await test('Cancelled recorder callback cannot overwrite a new recording', async () => {
+  const p = page(); p.current = { id: 'one', sender: 'Alice', app: 'Telegram', text: 'Hi' };
+  await p.record(); const old = p.recorder;
+  p.back(); p.current = { id: 'two', sender: 'Bob', app: 'Telegram', text: 'Hi' };
+  await p.record();
+  // The cancelled recorder is allowed to deliver late events, but not to change the new session.
+  old.ondataavailable({ data: new Blob(['late']) }); await old.onstop();
+  assert.equal(p.screen, 'recording'); assert.equal(p.draft, null);
+  p.finishCapture(); await new Promise(r => setTimeout(r, 10));
+  assert.equal(p.draft.target.id, 'two'); p.cleanup();
+});
+await test('Text draft has full paginated review and explicit send confirmation', () => {
+  const p = page(); p.draft = { target: { id: 'one', sender: 'Alice', app: 'Telegram' }, text: 'Long message '.repeat(45) };
+  p.draftTextPage = 0; p.readDraft(); assert.equal(p.screen, 'readDraft'); assert.equal(p.menu[1].id, 'mode:text');
+  p.selection = 0; p.activate(); assert.equal(p.draftTextPage, 1);
+  p.selection = 1; p.activate(); assert.equal(p.screen, 'confirm'); assert.equal(p.sendMode, 'text'); p.cleanup();
+});
+
+await test('Late microphone permission cannot replace the current capture', async () => {
+  const original = ctx.navigator.mediaDevices.getUserMedia;
+  const requests = [];
+  ctx.navigator.mediaDevices.getUserMedia = () => new Promise((resolve, reject) => requests.push({ resolve, reject }));
+  const p = page(); p.current = { id: 'one', sender: 'Alice', app: 'Telegram', text: 'Hi' };
+  try {
+    const oldCapture = p.record(); p.back();
+    p.current = { id: 'two', sender: 'Bob', app: 'Telegram', text: 'Hi' };
+    const newCapture = p.record();
+    const currentStream = { getTracks: () => [{ stop() {} }] };
+    requests[1].resolve(currentStream); await newCapture;
+    const currentRecorder = p.recorder; let oldStopped = false;
+    requests[0].resolve({ getTracks: () => [{ stop() { oldStopped = true; } }] }); await oldCapture;
+    assert.equal(p.stream, currentStream); assert.equal(p.recorder, currentRecorder); assert.ok(oldStopped);
+    p.finishCapture(); await new Promise(r => setTimeout(r, 10)); assert.equal(p.draft.target.id, 'two');
+  } finally { ctx.navigator.mediaDevices.getUserMedia = original; p.cleanup(); }
+});
+
 process.stdout.write(`${passed} checks passed. Device rendering, Bluetooth pairing and messaging services require hardware testing.\n`);

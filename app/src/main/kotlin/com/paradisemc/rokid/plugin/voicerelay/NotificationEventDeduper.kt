@@ -37,11 +37,11 @@ object NotificationEventDeduper {
         val bundles = extras.getParcelableArray(Notification.EXTRA_MESSAGES)
         if (bundles != null) {
             val messages = Notification.MessagingStyle.Message.getMessagesFromBundleArray(bundles)
-            val latest = messages.lastOrNull { !it.text.isNullOrBlank() }
+            val latest = messages.lastOrNull { !it.text.isNullOrBlank() || it.dataMimeType?.startsWith("audio/") == true }
             if (latest != null) {
                 val mime = latest.dataMimeType
                 val uri = latest.dataUri?.toString()
-                val text = latest.text.toString()
+                val text = latest.text?.toString()?.takeIf { it.isNotBlank() } ?: "Voice message"
                 return Payload(
                     sender = sender,
                     text = text,

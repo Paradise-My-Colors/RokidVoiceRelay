@@ -101,6 +101,9 @@ class BridgeApi(private val c: Context) {
                     require(f.length() == uploadLength.toLong()) { "Recording transfer was incomplete" }
                     require(RelayMedia.digest(f.readBytes()) == q.getString("sha256")) { "Recording failed its integrity check" }
                     require(RelayMedia.mime(f) in setOf("audio/wav", "audio/ogg")) { "Recorder must supply WAV or OGG/Opus" }
+                    val named = File(f.parentFile, f.nameWithoutExtension + if (RelayMedia.mime(f) == "audio/ogg") ".ogg" else ".wav")
+                    check(f.renameTo(named)) { "Could not finalize the recording" }
+                    upload = named
                     sealed = true; success()
                 }
                 "send" -> send(q, done)

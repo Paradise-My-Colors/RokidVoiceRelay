@@ -36,7 +36,7 @@ export class Bridge {
   connected() { return !!this.control && !!this.server && this.server.connected; }
   exclusive(fn) {
     const generation = this.generation;
-    const task = this.tail.then(() => { if (generation !== this.generation) throw new Error('Connection closed'); return fn(); });
+    const task = this.tail.then(() => { if (generation !== this.generation) throw new Error('Connection closed'); this.operationGeneration = generation; return fn(); });
     this.tail = task.catch(() => {}); return task;
   }
   async connect() {
@@ -73,6 +73,7 @@ export class Bridge {
     return hello;
   }
   async write(characteristic, data) {
+    if (this.operationGeneration !== this.generation) throw new Error('Connection changed; transfer cancelled');
     if (!this.connected()) throw new Error('Phone disconnected');
     const work = typeof characteristic.writeValueWithResponse === 'function' ? characteristic.writeValueWithResponse(Array.from(data)) : characteristic.writeValue(Array.from(data));
     return timeout(work, 10000, 'Bluetooth transfer stopped. Reconnect before trying again.');

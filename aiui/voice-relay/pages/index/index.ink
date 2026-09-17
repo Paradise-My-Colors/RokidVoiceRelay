@@ -130,7 +130,7 @@ export default {
   tapRow(event) {
     if (Date.now() < (this.ignoreTapUntil || 0) || this.data.busy) return;
     const target = event.currentTarget || event.target;
-    const value = target && ((target.dataset && target.dataset.index) || (target.attributes && target.attributes['data-index']));
+    const value = target && (target.dataset && target.dataset.index !== undefined ? target.dataset.index : target.attributes && target.attributes['data-index']);
     if (value !== undefined && value !== null) this.selection = Number(value);
     this.activate();
   },
@@ -155,6 +155,7 @@ export default {
     }
     if (id === 'send') return this.run(() => this.send(), 'Sending…');
     if (id === 'receipt') return this.run(async () => this.renderReceipt(await this.bridge.rpc({ op: 'receipt', operation: this.operation })), 'Checking delivery…');
+    if (id === 'ackReceipt') return this.run(async () => { wx.removeStorageSync('voice-relay-pending-send'); this.operation = null; await this.openInbox(); });
     if (id === 'cancel') { this.draft = null; this.operation = null; return this.detail(); }
     if (id === 'read') { this.textPage = 0; return this.readMessage(); }
     if (id === 'nextText') { this.textPage++; return this.readMessage(); }
@@ -202,22 +203,26 @@ export default {
     if (!mime || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return this.error(new Error('This AIUI runtime does not expose audio recording. Update the glasses runtime or use the existing Nexus voice reply.'));
     this.capturing = true;
     this.show('recording', 'Opening microphone', 'Reply to ' + target.sender, [row('stopRecord', 'Stop recording')]);
+    const captureToken = {}; this.captureToken = captureToken;
     try {
-      const captureToken = {}; this.captureToken = captureToken;
       const media = navigator.mediaDevices.getUserMedia({ audio: { sampleRate: 16000, channelCount: 1, echoCancellation: true } });
       media.then(stream => { if (this.captureToken !== captureToken || this.captureCancelled || !this.visible) stream.getTracks().forEach(t => t.stop()); }, () => {});
-      this.stream = await timeout(media, 12000, 'Microphone permission was not granted');
-      if (this.captureCancelled || !this.visible) { this.cancelCapture(); return; }
+      const stream = await timeout(media, 12000, 'Microphone permission was not granted');
+      if (this.captureToken !== captureToken || this.captureCancelled || !this.visible) { stream.getTracks().forEach(t => t.stop()); return; }
+      this.stream = stream;
       const chunks = []; const recorder = new Recorder(this.stream, { mimeType: mime, audioBitsPerSecond: 24000 });
       this.recorder = recorder;
       recorder.ondataavailable = event => { if (event.data && event.data.size) chunks.push(event.data); };
-      recorder.onerror = event => { this.cancelCapture(); this.error(new Error((event.error && event.error.message) || 'Recording failed')); };
+      recorder.onerror = event => { if (this.captureToken !== captureToken) return; this.cancelCapture(); this.error(new Error((event.error && event.error.message) || 'Recording failed')); };
       recorder.onstop = async () => {
+        stream.getTracks().forEach(t => t.stop());
+        if (this.captureToken !== captureToken) return;
         clearInterval(this.clock); this.clock = null; this.capturing = false;
-        if (this.stream) this.stream.getTracks().forEach(t => t.stop()); this.stream = null; this.recorder = null;
+        this.stream = null; this.recorder = null;
         if (this.captureCancelled || !this.visible) return;
         try {
           const data = await new Blob(chunks, { type: mime }).arrayBuffer();
+          if (this.captureToken !== captureToken || !this.visible) return;
           if (!data.byteLength) throw new Error('The microphone returned no audio. Record again.');
           this.draft = { target, data, mime, upload: null }; this.preview();
         } catch (e) { this.error(e); }
@@ -229,7 +234,7 @@ export default {
         this.update({ title: 'Recording ' + seconds + 's' });
         if (seconds >= (mime === 'audio/wav' ? 20 : 60)) this.finishCapture();
       }, 250);
-    } catch (e) { this.cancelCapture(); this.error(e); }
+    } catch (e) { if (this.captureToken === captureToken) { this.cancelCapture(); this.error(e); } }
   },
   finishCapture() {
     if (!this.recorder || this.recorder.state === 'inactive') return;
@@ -256,18 +261,20 @@ export default {
     recognition.continuous = false; recognition.interimResults = false;
     this.show('dictating', 'Dictating text', 'Speak your note. You will review it before sending.', [row('stopDictation', 'Stop dictation')]);
     recognition.onresult = event => {
+      if (this.recognition !== recognition) return;
       const parts = [];
       for (let i = event.resultIndex || 0; i < event.results.length; i++) { if (event.results[i][0]) parts.push(event.results[i][0].transcript); }
       const text = parts.join(' ').trim(); if (!text) return;
       this.draft.text = text;
     };
     recognition.onend = () => {
+      if (this.recognition !== recognition) return;
       this.recognition = null;
       if (!this.visible || this.screen !== 'dictating') return;
       if (!this.draft || !this.draft.text) return this.error(new Error('No words were captured. Try again.'));
       this.show('textPreview', 'Review text', this.draft.text, [row('textFull', 'Read full text'), row('mode:text', 'Send text note'), row('dictate', 'Dictate again'), row('cancel', 'Discard')]);
     };
-    recognition.onerror = event => { this.recognition = null; this.error(new Error(event.message || 'Dictation failed')); };
+    recognition.onerror = event => { if (this.recognition !== recognition) return; this.recognition = null; this.error(new Error(event.message || 'Dictation failed')); };
     try { recognition.start(); } catch (e) { this.recognition = null; this.error(e); }
   },
   async playAudio(data, mime, returnScreen) {
@@ -295,7 +302,10 @@ export default {
       try { wx.removeStorageSync('voice-relay-pending-send'); } catch (_) {}
     }
     const menu = [row('inbox', 'Back to inbox')];
-    if (['pending', 'check', 'unknown'].includes(receipt.state) && this.operation) menu.unshift(row('receipt', 'Check delivery again'));
+    if (['pending', 'check', 'unknown'].includes(receipt.state) && this.operation) {
+      menu.unshift(row('receipt', 'Check delivery again'));
+      menu.push(row('ackReceipt', 'I checked the chat on my phone'));
+    }
     this.show('receipt', receiptTitle(receipt.state), receipt.detail || 'Check the conversation on your phone.', menu);
     this.draft = null;
   },
@@ -304,7 +314,7 @@ export default {
     if (this.screen === 'dictating') { if (this.recognition) this.recognition.abort(); this.recognition = null; this.draft = null; this.detail(); return; }
     if (this.screen === 'playing') { this.stopPlayer(); if (this.playReturn === 'preview') this.preview(); else this.detail(); return; }
     if (this.data.busy) { this.update({ hint: 'Finishing transfer. No automatic resend.' }); return; }
-    if (this.screen === 'confirm') { if (this.sendMode === 'text') this.show('textPreview', 'Review text', this.draft.text, [row('mode:text', 'Send text note'), row('cancel', 'Discard')]); else this.preview(); return; }
+    if (this.screen === 'confirm') { if (this.sendMode === 'text') this.show('textPreview', 'Review text', this.draft.text, [row('textFull', 'Read full text'), row('mode:text', 'Send text note'), row('cancel', 'Discard')]); else this.preview(); return; }
     if (this.screen === 'readDraft') { this.show('textPreview', 'Review text', this.draft.text, [row('textFull', 'Read full text'), row('mode:text', 'Send text note'), row('cancel', 'Discard')]); return; }
     if (!this.bridge.connected()) { this.offline(); return; }
     if (['message', 'settings', 'receipt', 'error', 'help'].includes(this.screen)) return this.run(() => this.openInbox());
