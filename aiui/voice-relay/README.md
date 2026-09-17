@@ -2,7 +2,7 @@
 
 Standalone AIUI project for the v0.9 Voice Relay Android companion. Import **this folder**, containing `app.json`, into [AIUI Studio Global](https://aiui-global.rokid.com/). No npm install is needed. Use **Build & Review → Package AIX**, then update the glasses resource package from Hi Rokid's Developer settings.
 
-Install the matching Android companion, enable notification access, start its Bluetooth bridge, pair the glasses and approve them on the phone. Select **Connect to phone** in this agent. Full installation and recovery steps are in `SETUP.md` in the downloadable project.
+Install the matching **Voice Relay AIUI** Android companion alongside v0.8, enable its notification access, complete its own Telegram login, start its Bluetooth bridge, pair the glasses and approve them on the phone. Disable the older app's notification access to avoid duplicate alerts. Select **Connect to phone** in this agent. Full installation and recovery steps are in `SETUP.md` in the downloadable project.
 
 The page provides an inbox, voice playback, confirmed voice/audio-file/text replies, and Telegram, WhatsApp, unlocked-phone, DND, Silent and Nexus alert controls. Use swipe, tap and Back. Voice capture is not transcribed; dictation is an explicit alternative.
 

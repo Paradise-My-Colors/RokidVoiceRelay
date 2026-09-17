@@ -37,7 +37,7 @@
             </intent-filter>
         </activity>
         <activity android:name=".aiui.PhoneHandoffActivity" android:exported="false" />
-        <activity android:name=".aiui.ImportVoiceActivity" android:exported="true" android:label="Voice Relay">
+        <activity android:name=".aiui.ImportVoiceActivity" android:exported="true" android:label="Voice Relay AIUI">
             <intent-filter>
                 <action android:name="android.intent.action.SEND" />
                 <category android:name="android.intent.category.DEFAULT" />
@@ -58,7 +58,7 @@
         <service
             android:name=".VoiceRelayNotificationListener"
             android:exported="true"
-            android:label="Voice Relay"
+            android:label="Voice Relay AIUI"
             android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
             <intent-filter>
                 <action android:name="android.service.notification.NotificationListenerService" />
@@ -77,10 +77,10 @@
             </intent-filter>
             <meta-data
                 android:name="com.anezium.rokidbus.plugin.ID"
-                android:value="voicerelay" />
+                android:value="voicerelayaiui" />
             <meta-data
                 android:name="com.anezium.rokidbus.plugin.DISPLAY_NAME"
-                android:value="Voice Relay" />
+                android:value="Voice Relay AIUI" />
             <meta-data
                 android:name="com.anezium.rokidbus.plugin.ICON"
                 android:value="mic" />
@@ -92,7 +92,7 @@
                 android:value="surfaces,microphone" />
             <meta-data
                 android:name="com.anezium.rokidbus.plugin.RECEIVE_PREFIXES"
-                android:value="/plugin/voicerelay,/system/plugin,/audio" />
+                android:value="/plugin/voicerelayaiui,/system/plugin,/audio" />
             <meta-data
                 android:name="com.anezium.rokidbus.plugin.SETTINGS_ACTIVITY"
                 android:value=".VoiceRelaySettingsActivity" />

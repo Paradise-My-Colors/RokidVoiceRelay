@@ -7,7 +7,8 @@ android {
     compileSdk = 36
 
     defaultConfig {
-        applicationId = "com.paradisemc.rokid.plugin.voicerelay"
+        // Separate installation preserves v0.8: its published signer was not retained.
+        applicationId = "com.paradisemc.rokid.aiui.voicerelay"
         minSdk = 30
         targetSdk = 36
         versionCode = 9

@@ -62,16 +62,16 @@ jobs:
       - name: Check AIUI source and behavior
         run: node --experimental-vm-modules tests/aiui.test.mjs
 
-      - name: Verify APK and compare v0.8 signer
+      - name: Verify separate AIUI package and stable signer
         shell: bash
         run: |
           APK=app/build/outputs/apk/debug/app-debug.apk
           SIGNER="$ANDROID_HOME/build-tools/36.0.0/apksigner"
           "$SIGNER" verify --print-certs "$APK" > /tmp/new-signer.txt
-          curl -L --fail --retry 3 "https://github.com/Paradise-My-Colors/RokidVoiceRelay/releases/download/v0.8/RokidVoiceRelay-v0.8.apk" -o /tmp/previous.apk
-          echo "291b921b30d33cb01a3107c5f89aa2bc53595b9fc2e57e513629fb8b9289b903  /tmp/previous.apk" | sha256sum -c -
-          "$SIGNER" verify --print-certs /tmp/previous.apk > /tmp/old-signer.txt
-          diff <(grep 'certificate SHA-256 digest:' /tmp/old-signer.txt) <(grep 'certificate SHA-256 digest:' /tmp/new-signer.txt)
+          grep -Fx 'Signer #1 certificate SHA-256 digest: 8ad4309337a31e99ee25ee5d14d2b94bf4d0d0917ff1d0b9574c044a7584c61a' /tmp/new-signer.txt
+          "$ANDROID_HOME/build-tools/36.0.0/aapt" dump badging "$APK" > /tmp/apk-info.txt
+          grep "^package: name='com.paradisemc.rokid.aiui.voicerelay' " /tmp/apk-info.txt
+          grep "^launchable-activity: name='com.paradisemc.rokid.plugin.voicerelay.aiui.AiuiSettingsActivity' " /tmp/apk-info.txt
           cat /tmp/new-signer.txt
 
       - name: Upload APK

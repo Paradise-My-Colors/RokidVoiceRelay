@@ -29,6 +29,7 @@ class AiuiSettingsActivity : Activity() {
         fun button(value: String, action: () -> Unit) { content.addView(Button(this).apply { text = value; setOnClickListener { action() } }) }
         label("Voice Relay · AIUI", 27f)
         label("0.9 test build · Telegram and WhatsApp")
+        label("Installs alongside Voice Relay v0.8. Enable notification access and Telegram login here. To avoid duplicate alerts, disable notification access for the older Voice Relay and enable only Voice Relay AIUI. Keep the old app installed if you want to return to it.")
         status = TextView(this).apply { textSize = 16f }; content.addView(status)
         button("1. Enable notification access") { startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) }
         button("2. Start Bluetooth bridge") { startBridge(false) }
