@@ -14,6 +14,16 @@ android {
         versionName = "0.9.0-aiui-beta"
     }
 
+    // CI must use the restored Voice Relay key, not a runner-generated default.
+    providers.environmentVariable("VOICE_RELAY_SIGNING_FILE").orNull?.let { signingFile ->
+        signingConfigs.getByName("debug") {
+            storeFile = file(signingFile)
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
+    }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11

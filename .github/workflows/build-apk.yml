@@ -36,20 +36,14 @@ jobs:
         with:
           path: ~/.android/debug.keystore
           key: rokid-voice-relay-debug-signing-v1
+          fail-on-cache-miss: true
 
-      - name: Create debug signing key if missing
+      - name: Select restored Voice Relay signing key
         shell: bash
         run: |
-          if [ ! -f "$HOME/.android/debug.keystore" ]; then
-            mkdir -p "$HOME/.android"
-            keytool -genkeypair -v \
-              -keystore "$HOME/.android/debug.keystore" \
-              -storepass android \
-              -alias androiddebugkey \
-              -keypass android \
-              -dname "CN=Rokid Voice Relay Dev,O=ParadiseMC,C=DE" \
-              -keyalg RSA -keysize 2048 -validity 10000
-          fi
+          test -f "$HOME/.android/debug.keystore"
+          echo "VOICE_RELAY_SIGNING_FILE=$HOME/.android/debug.keystore" >> "$GITHUB_ENV"
+          keytool -list -v -keystore "$HOME/.android/debug.keystore" -storepass android -alias androiddebugkey
 
       - name: Fetch pinned TDLib 1.8.65 Android libraries
         shell: bash
