@@ -31,7 +31,7 @@ class AiuiBridgeService : Service() {
     @Volatile private var pairUntil = 0L
     @Volatile private var bondApproval: String? = null
     private var bondReceiverRegistered = false
-    private data class Peer(var mtu: Int = 23, var sequence: Int = 0, val command: ByteArrayOutputStream = ByteArrayOutputStream(), var offset: Int = 0, var media: Boolean = false)
+    private data class Peer(var mtu: Int = 23, var sequence: Int = 0, val command: ByteArrayOutputStream = ByteArrayOutputStream(), var offset: Int = 0, var media: Boolean = false, @Volatile var helloSeen: Boolean = false)
     override fun onBind(intent: Intent?) = null
     override fun onCreate() {
         super.onCreate(); instance = this; api = BridgeApi(this)
@@ -50,13 +50,14 @@ class AiuiBridgeService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == "pair") {
             pairUntil = SystemClock.elapsedRealtime() + 180_000
-            status = if (pendingPeer != null) "Glasses connected. Tap Approve glasses here." else "Open Voice Relay on your glasses and Connect. Then tap Approve glasses here."
+            status = if (pendingPeer != null) "Approval window open. Wait for the glasses to ask for approval, then tap Approve glasses." else "Pairing open for 3 minutes. Open Voice Relay on your glasses and tap Connect once."
         }
         if (intent?.action == "restart") {
             gattEpoch++
             handler.removeCallbacksAndMessages(null)
             runCatching { advertising?.let { advertiser?.stopAdvertising(it) } }; runCatching { server?.close() }
             server = null; peers.clear(); pendingPeer = null; bondApproval = null; currentId = ""; activeUntil = 0
+            serviceState = "Restarting"
             status = "Restarting Bluetooth bridge…"
             handler.postDelayed({ startGatt() }, 400)
         }
@@ -66,6 +67,7 @@ class AiuiBridgeService : Service() {
         getSharedPreferences("aiui-bridge", 0).getString("trusted", null) == device.address
     fun approve(): Boolean {
         val address = pendingPeer ?: run { status = "On the glasses, tap Connect first and leave that page open."; return false }
+        if (peers[address]?.helloSeen != true) { status = "Bluetooth link exists, but the glasses have not found Voice Relay yet. Wait for their approval instruction."; return false }
         if (SystemClock.elapsedRealtime() > pairUntil) { status = "Pairing expired. Tap Pair glasses again."; return false }
         val adapter = getSystemService(BluetoothManager::class.java).adapter
         val device = adapter.getRemoteDevice(address)
@@ -98,6 +100,7 @@ class AiuiBridgeService : Service() {
     }
     private fun startGatt() {
         val epoch = ++gattEpoch
+        serviceState = "Registering service"; status = "Starting Bluetooth bridge…"
         try {
             val manager = getSystemService(BluetoothManager::class.java)
             val adapter = manager.adapter ?: error("This phone has no Bluetooth")
@@ -113,35 +116,50 @@ class AiuiBridgeService : Service() {
             service.addCharacteristic(BluetoothGattCharacteristic(RESPONSE, BluetoothGattCharacteristic.PROPERTY_READ, BluetoothGattCharacteristic.PERMISSION_READ_ENCRYPTED))
             service.addCharacteristic(BluetoothGattCharacteristic(AUDIO, BluetoothGattCharacteristic.PROPERTY_WRITE, BluetoothGattCharacteristic.PERMISSION_WRITE_ENCRYPTED))
             check(server!!.addService(service)) { "Could not register Bluetooth service" }
-        } catch (e: Throwable) { status = e.message ?: "Bluetooth failed"; stopSelf() }
+        } catch (e: Throwable) { serviceState = "Registration failed"; status = e.message ?: "Bluetooth failed"; stopSelf() }
     }
     private fun advertisingCallback(epoch: Long) = object : AdvertiseCallback() {
-        override fun onStartSuccess(settingsInEffect: AdvertiseSettings?) { if (epoch == gattEpoch) status = if (SystemClock.elapsedRealtime() <= pairUntil) "Pairing open for 3 minutes. Connect on the glasses, then approve them here." else "Bridge ready. Tap Pair glasses for first setup." }
-        override fun onStartFailure(errorCode: Int) { if (epoch == gattEpoch) status = "Bluetooth advertising failed ($errorCode). Stop and restart the bridge." }
+        override fun onStartSuccess(settingsInEffect: AdvertiseSettings?) {
+            if (epoch != gattEpoch) return
+            serviceState = "Registered: 4 characteristics · Advertising ready"
+            if (peers.isEmpty()) status = if (SystemClock.elapsedRealtime() <= pairUntil) "Pairing open for 3 minutes. Connect on the glasses, then approve them here." else "Bridge ready · 0.9.2. Open Voice Relay on the glasses."
+        }
+        override fun onStartFailure(errorCode: Int) { if (epoch == gattEpoch) { serviceState = "Registered · Advertising failed ($errorCode)"; status = "Bluetooth advertising failed ($errorCode). Stop and restart the bridge." } }
     }
     private fun callback(epoch: Long) = object : BluetoothGattServerCallback() {
         override fun onServiceAdded(code: Int, service: BluetoothGattService?) {
             if (epoch != gattEpoch) return
-            if (code != BluetoothGatt.GATT_SUCCESS) { status = "Could not register Bluetooth service ($code)"; return }
-            val advertising = advertisingCallback(epoch); this@AiuiBridgeService.advertising = advertising
-            advertiser?.startAdvertising(AdvertiseSettings.Builder().setAdvertiseMode(AdvertiseSettings.ADVERTISE_MODE_LOW_LATENCY)
-                .setConnectable(true).build(), AdvertiseData.Builder().addServiceUuid(ParcelUuid(SERVICE)).build(), advertising)
+            try {
+                check(code == BluetoothGatt.GATT_SUCCESS && service?.uuid == SERVICE) { "Could not register Voice Relay service ($code)" }
+                val registered = server?.getService(SERVICE) ?: error("Voice Relay service missing from phone database")
+                check(listOf(HELLO, CONTROL, RESPONSE, AUDIO).all { registered.getCharacteristic(it) != null }) { "Voice Relay service incomplete" }
+                serviceState = "Registered: 4 characteristics · Starting advertising"
+                val advertising = advertisingCallback(epoch); this@AiuiBridgeService.advertising = advertising
+                advertiser?.startAdvertising(AdvertiseSettings.Builder().setAdvertiseMode(AdvertiseSettings.ADVERTISE_MODE_LOW_LATENCY)
+                    .setConnectable(true).build(), AdvertiseData.Builder().addServiceUuid(ParcelUuid(SERVICE)).build(), advertising)
+            } catch (e: Throwable) { serviceState = "Service startup failed"; status = e.message ?: "Bluetooth service failed" }
         }
         override fun onConnectionStateChange(device: BluetoothDevice, code: Int, state: Int) {
             if (epoch != gattEpoch) return
             if (state == BluetoothProfile.STATE_CONNECTED && code == BluetoothGatt.GATT_SUCCESS) {
                 if (peers.keys.any { it != device.address }) { server?.cancelConnection(device); return }
-                peers[device.address] = Peer()
+                val peer = peers.getOrPut(device.address) { Peer() }
                 if (!trusted(device)) {
                     pendingPeer = device.address
-                    status = if (SystemClock.elapsedRealtime() <= pairUntil) "Glasses connected. Tap Approve glasses; keep the glasses app open." else "Glasses connected. Tap Pair glasses, then Approve glasses."
                     // Starting bonding inside this callback can race GATT discovery.
                     // The explicit Approve button starts pairing after public discovery.
-                } else status = "Glasses connected. Opening secure session…"
+                }
+                if (!peer.helloSeen) status = "Bluetooth link detected. Waiting for the glasses to find the Voice Relay service…"
+                handler.postDelayed({
+                    if (epoch == gattEpoch && peers[device.address] === peer && !peer.helloSeen)
+                        status = "Bluetooth link only: glasses have not read the Voice Relay service. Check Connection details on the glasses."
+                }, 20_000)
             } else {
-                peers.remove(device.address); activeUntil = 0
+                if (peers.remove(device.address) == null) return
+                activeUntil = 0
                 if (pendingPeer == device.address) pendingPeer = null
                 if (code != BluetoothGatt.GATT_SUCCESS) status = "Glasses Bluetooth disconnected (status $code). Restart the bridge, then Connect once on the glasses."
+                else status = "Voice Relay disconnected. Bridge ready for Connect on the glasses."
             }
         }
         override fun onMtuChanged(device: BluetoothDevice, mtu: Int) { if (epoch == gattEpoch) peers[device.address]?.mtu = mtu.coerceIn(23, 517) }
@@ -174,9 +192,10 @@ class AiuiBridgeService : Service() {
                             if (q.optString("op") == "hello") {
                                 response = encode(JSONObject().put("id", id).put("ok", true).put("value", JSONObject()
                                     .put("version", 2).put("approved", trusted(device)).put("mtu", peer.mtu)))
-                                if (trusted(device)) status = "Glasses connected securely · Voice Relay 0.9.1"
+                                if (trusted(device)) status = "Secure handshake received. Waiting for the glasses to open Inbox…"
                             } else {
                                 require(trusted(device)) { "Approve your glasses on the phone" }
+                                if (q.optString("op") == "inbox") status = "Voice Relay connected securely · 0.9.2 · Inbox requested"
                                 activeUntil = SystemClock.elapsedRealtime() + 15_000
                                 val old = results[id]
                                 if (old != null) response = old else {
@@ -201,6 +220,12 @@ class AiuiBridgeService : Service() {
             try {
                 val peer = peers[device.address] ?: error("Disconnected")
                 if (characteristic.uuid == HELLO) {
+                    if (!peer.helloSeen) {
+                        peer.helloSeen = true
+                        status = if (trusted(device)) "Voice Relay service found. Checking the secure connection…"
+                            else if (SystemClock.elapsedRealtime() <= pairUntil) "Voice Relay service found. Tap Approve glasses, then confirm any pairing prompt."
+                            else "Voice Relay service found. Tap Pair glasses, then Approve glasses."
+                    }
                     val flags = (if (trusted(device)) 1 else 0) or (if (device.bondState == BluetoothDevice.BOND_BONDED) 2 else 0)
                     val value = byteArrayOf(86, 82, 2, flags.toByte(), peer.mtu.toByte(), (peer.mtu ushr 8).toByte())
                     require(offset in 0..value.size)
@@ -234,6 +259,7 @@ class AiuiBridgeService : Service() {
         if (bondReceiverRegistered) runCatching { unregisterReceiver(bondReceiver) }
         runCatching { advertising?.let { advertiser?.stopAdvertising(it) } }; runCatching { server?.close() }
         executor.shutdown(); instance = null; activeUntil = 0; pendingPeer = null; super.onDestroy()
+        serviceState = "Bridge stopped"
     }
     companion object {
         val SERVICE: UUID = UUID.fromString("8f1b9000-8c77-4a7a-9e52-018260091600")
@@ -244,6 +270,7 @@ class AiuiBridgeService : Service() {
         const val CHANNEL = "aiui-connection"
         @Volatile var instance: AiuiBridgeService? = null
         @Volatile var status = "Bridge stopped"
+        @Volatile var serviceState = "Bridge stopped"
         @Volatile var pendingPeer: String? = null
         @Volatile private var activeUntil = 0L
         fun hasActivePage() = SystemClock.elapsedRealtime() < activeUntil

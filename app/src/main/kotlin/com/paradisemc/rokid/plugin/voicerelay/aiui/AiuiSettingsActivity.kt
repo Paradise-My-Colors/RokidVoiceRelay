@@ -18,7 +18,7 @@ class AiuiSettingsActivity : Activity() {
     private val handler = Handler(Looper.getMainLooper())
     private lateinit var status: TextView
     private val refresh = object : Runnable { override fun run() {
-        status.text = AiuiBridgeService.status + if (AiuiBridgeService.pendingPeer != null) "\nA device is waiting for approval." else ""
+        status.text = AiuiBridgeService.status + "\n" + AiuiBridgeService.serviceState
         handler.postDelayed(this, 1000)
     } }
     override fun onCreate(state: Bundle?) {
@@ -28,18 +28,25 @@ class AiuiSettingsActivity : Activity() {
         fun label(value: String, size: Float = 16f) { content.addView(TextView(this).apply { text = value; textSize = size; setPadding(0, 16, 0, 12) }) }
         fun button(value: String, action: () -> Unit) { content.addView(Button(this).apply { text = value; setOnClickListener { action() } }) }
         label("Voice Relay · AIUI", 27f)
-        label("0.9.1 test build · Pairing and runtime fixes")
+        label("0.9.2 test build · Service discovery recovery")
         label("Installs alongside Voice Relay v0.8. Enable notification access and Telegram login here. To avoid duplicate alerts, disable notification access for the older Voice Relay and enable only Voice Relay AIUI. Keep the old app installed if you want to return to it.")
         status = TextView(this).apply { textSize = 16f }; content.addView(status)
         button("1. Enable notification access") { startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) }
         button("2. Start Bluetooth bridge") { startBridge(false) }
         button("3. Pair glasses (first time)") { startBridge(true) }
         button("Restart Bluetooth bridge") { startBridge(false, true) }
+        button("Connection details") {
+            val details = "Voice Relay AIUI 0.9.2\n${AiuiBridgeService.serviceState}\n${AiuiBridgeService.status}\nService: ${AiuiBridgeService.SERVICE}"
+            AlertDialog.Builder(this).setTitle("Connection details").setMessage(details).setPositiveButton("Copy") { _, _ ->
+                getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("Voice Relay connection", details))
+                Toast.makeText(this, "Connection details copied", Toast.LENGTH_SHORT).show()
+            }.setNegativeButton("Close", null).show()
+        }
         button("Approve glasses") {
             AiuiBridgeService.instance?.approve()
             status.text = AiuiBridgeService.status
         }
-        label("Open Voice Relay 0.9.1 on your glasses and tap Connect once. Keep that page open. Tap Approve glasses here, then confirm any Android Bluetooth pairing prompt. The glasses continue automatically; Back cancels.")
+        label("Wait for Bridge ready. Open Voice Relay 0.9.2 on your glasses and tap Connect once. Keep that page open. When the glasses ask for approval, tap Approve glasses here and confirm any Bluetooth prompt. Already-approved glasses skip approval. Success means Inbox on the glasses and Voice Relay connected securely here.")
         button("Telegram setup / login") { startActivity(Intent(this, TelegramSetupActivity::class.java)) }
         button("Finish reply on phone") { PhoneHandoff.openLatest(this) }
         label("Notification settings", 22f)

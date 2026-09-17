@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import vm from 'node:vm';
 import { webcrypto, createHash } from 'node:crypto';
-import { Bridge, frames, offsetPacket } from '../aiui/voice-relay/lib/bridge.js';
+import { Bridge, SERVICE, frames, offsetPacket } from '../aiui/voice-relay/lib/bridge.js';
 import { visibleRows, keyAction, receiptTitle } from '../aiui/voice-relay/lib/ui.js';
 import { checksum, identifier, errorMessage } from '../aiui/voice-relay/lib/runtime.js';
 let passed = 0;
@@ -196,14 +196,14 @@ await test('Portable audio hashing matches standard SHA-256 without Web Crypto',
   const ids = new Set(Array.from({ length: 1000 }, () => identifier(wx))); assert.equal(ids.size, 1000);
 });
 
-const fastTiming = { scan: 100, connect: 25, discovery: 100, approval: 120, poll: 2, retry: 1, settle: 1, disconnect: 10 };
+const fastTiming = { scan: 100, connect: 25, discovery: 100, discoveryDelay: 1, approval: 120, poll: 2, retry: 1, settle: 1, disconnect: 10 };
 async function until(condition) {
   for (let i = 0; i < 100; i++) { if (condition()) return; await new Promise(resolve => setTimeout(resolve, 2)); }
   throw new Error('Fixture did not reach expected state');
 }
 function connectionFixture(options = {}) {
   const wire = fakeBridge(22);
-  const counts = { scans: 0, connects: 0, disconnects: 0, reads: 0, secureWrites: 0, stops: 0 };
+  const counts = { scans: 0, connects: 0, disconnects: 0, reads: 0, secureWrites: 0, stops: 0, discoveries: 0, lists: 0 };
   const servers = []; const pending = [];
   let allowed = false;
   const bluetooth = {
@@ -217,12 +217,30 @@ function connectionFixture(options = {}) {
           const attempt = ++counts.connects;
           if (attempt <= (options.failures || 0)) throw options.failure || new Error('java.lang.IllegalStateException: Bluetooth connection failed with status 8');
           if (options.lateFirst && attempt === 1) return new Promise(resolve => pending.push(() => { this.connected = true; resolve(this); }));
-          this.connected = true; return this;
+          this.connected = true;
+          if (options.distinctWrapper) return {
+            get connected() { return server.connected; },
+            disconnect: () => server.disconnect(),
+            getPrimaryService: () => server.getPrimaryService(),
+            getPrimaryServices: () => server.getPrimaryServices()
+          };
+          return this;
         },
         async disconnect() { counts.disconnects++; this.connected = false; },
-        async getPrimaryService() {
+        async getPrimaryServices() {
+          counts.lists++;
+          if (options.delayList) await new Promise(resolve => pending.push(resolve));
+          if (options.listFailure) throw options.listFailure;
+          if (options.listAfter && counts.lists >= options.listAfter) return [await this.getPrimaryService(true)];
+          return [{ uuid: '0000180f-0000-1000-8000-00805f9b34fb', getCharacteristic() { throw new Error('Wrong service used'); } }];
+        },
+        async getPrimaryService(fromList) {
+          counts.discoveries++;
           if (options.delayDiscovery) await new Promise(resolve => pending.push(resolve));
-          return { async getCharacteristic(uuid) {
+          if (options.discoveryFailure) throw options.discoveryFailure;
+          if (fromList !== true && (options.serviceMissing || counts.discoveries <= (options.missingLookups || 0) || (options.missingFirstServer && servers.indexOf(server) === 0)))
+            throw new Error('Failed to get primary service from the remote GATT server: service ' + SERVICE + ' not found on device A8:79:8D:40:A4:B7');
+          return { uuid: SERVICE.toUpperCase(), async getCharacteristic(uuid) {
             if (uuid.includes('9004')) return { async readValue() {
               counts.reads++; allowed = counts.reads > (options.approvalReads || 0);
               return [86, 82, 2, allowed ? 3 : 0, 23, 0];
@@ -264,11 +282,11 @@ await test('Duplicate Connect presses share one connection and wait for phone ap
   assert.equal(f.counts.connects, 1); assert.equal(f.counts.reads, 4);
   assert.ok(progress.some(value => value.includes('Approve glasses'))); assert.ok(f.counts.secureWrites > 0); await f.b.close();
 });
-await test('A late timed-out GATT result is closed without replacing the new connection', async () => {
-  const f = connectionFixture({ lateFirst: true }); await f.b.connect();
-  assert.equal(f.counts.connects, 2); const active = f.b.server;
+await test('A native connect timeout never overlaps another connect, and closes its late result', async () => {
+  const f = connectionFixture({ lateFirst: true }); await assert.rejects(f.b.connect(), /timed out/);
+  await assert.rejects(f.b.connect(), /Restart the glasses/); assert.equal(f.counts.connects, 1);
   f.pending[0](); await new Promise(resolve => setTimeout(resolve, 5));
-  assert.equal(f.servers[0].connected, false); assert.equal(f.b.server, active); assert.ok(f.b.connected()); await f.b.close();
+  assert.equal(f.servers[0].connected, false); assert.equal(f.b.server, null); assert.ok(!f.b.connected()); await f.b.close();
 });
 await test('Cancellation during discovery cannot restore a closed connection', async () => {
   const f = connectionFixture({ delayDiscovery: true }); const work = f.b.connect();
@@ -295,6 +313,48 @@ await test('Old in-flight commands cannot continue on a newly opened connection'
   const fresh = fakeBridge(22).b; b.server = fresh.server; b.control = fresh.control; b.response = fresh.response; b.audio = fresh.audio;
   assert.equal((await b.rpc({ op: 'hello' })).approved, true);
   release(); await rejected; assert.equal(writes, 1); await b.close();
+});
+
+await test('Delayed service discovery recovers before reconnecting', async () => {
+  const f = connectionFixture({ missingLookups: 2 }); await f.b.connect();
+  assert.equal(f.counts.discoveries, 3); assert.equal(f.counts.connects, 1); assert.equal(f.b.details().stage, 'Connected securely'); await f.b.close();
+});
+await test('Enumeration finds only the exact Voice Relay UUID when direct lookup is stale', async () => {
+  const f = connectionFixture({ serviceMissing: true, listAfter: 2 }); await f.b.connect();
+  assert.equal(f.counts.lists, 2); assert.equal(f.counts.connects, 1); assert.ok(f.b.connected()); await f.b.close();
+});
+await test('Missing service reconnects once with a fresh scan and discovers again', async () => {
+  const f = connectionFixture({ missingFirstServer: true }); await f.b.connect();
+  assert.equal(f.counts.scans, 2); assert.equal(f.counts.discoveries, 4); assert.equal(f.servers[0].connected, false); await f.b.close();
+});
+await test('Persistent missing service is bounded, sends nothing and saves useful diagnostics', async () => {
+  const f = connectionFixture({ serviceMissing: true }); await assert.rejects(f.b.connect(), /Phone service not found/);
+  assert.equal(f.counts.connects, 2); assert.equal(f.counts.discoveries, 6); assert.equal(f.counts.secureWrites, 0);
+  assert.equal(f.b.details().stage, 'Service discovery'); assert.match(f.b.details().lastError, /A8:79:8D:40:A4:B7/);
+  const restored = new Bridge(null, f.b.storage); assert.equal(restored.details().version, '0.9.2');
+  assert.deepEqual(restored.details().services, ['0000180f-0000-1000-8000-00805f9b34fb']);
+});
+await test('Native enumeration errors fall back to direct discovery without escaping', async () => {
+  const f = connectionFixture({ listFailure: new Error('QuickJS library created an unknown error') });
+  await f.b.connect(); assert.ok(f.b.connected()); assert.equal(f.counts.connects, 1); await f.b.close();
+});
+await test('Two JS wrappers for the same native connection disconnect exactly once', async () => {
+  const f = connectionFixture({ distinctWrapper: true }); await f.b.connect();
+  assert.notEqual(f.b.server, f.b.gatt); await f.b.close(); assert.equal(f.counts.disconnects, 1); assert.equal(f.counts.stops, 1);
+});
+await test('Discovery timeout aborts without starting overlapping native lookups', async () => {
+  const f = connectionFixture({ delayList: true }); f.b.timing.discovery = 10;
+  await assert.rejects(f.b.connect(), /timed out/); assert.equal(f.counts.connects, 1); assert.equal(f.counts.discoveries, 0);
+  await assert.rejects(f.b.connect(), /Restart the glasses/); f.pending[0](); await new Promise(resolve => setTimeout(resolve, 5));
+  assert.equal(f.b.server, null); assert.equal(f.counts.secureWrites, 0);
+});
+await test('Connection details survive cleanup and show the entire error in short pages', () => {
+  const p = page(); const raw = 'Native error '.repeat(30);
+  p.bridge.remember({ stage: 'Service discovery', lastError: raw, services: [SERVICE], phone: 'phone-one' });
+  p.connectionDetails(false);
+  assert.equal(p.screen, 'diagnostics'); assert.ok(p.connectionDetailPages.every(s => s.length <= 130));
+  assert.ok(p.connectionDetailPages.join('').includes(raw));
+  p.connectionDetails(true); assert.match(p.data.detail, /Service discovery/); p.cleanup();
 });
 
 process.stdout.write(`${passed} checks passed. Device rendering, Bluetooth pairing and messaging services require hardware testing.\n`);

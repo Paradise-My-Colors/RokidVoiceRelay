@@ -49,7 +49,7 @@ export default {
   paint() { this.update({ rows: visibleRows(this.menu, this.selection), counter: this.menu.length ? (this.selection + 1) + ' / ' + this.menu.length : '' }); },
   offline() {
     this.update({ connected: false, banner: '' });
-    this.show('offline', 'Voice Relay 0.9.1', 'Start the bridge on your phone, then connect.', [row('connect', 'Connect to phone'), row('help', 'Setup help'), row('forget', 'Choose a different phone')]);
+    this.show('offline', 'Voice Relay 0.9.2', 'Start the bridge on your phone, then connect.', [row('connect', 'Connect to phone'), row('help', 'Setup help'), row('diagnostics', 'Connection details'), row('forget', 'Choose a different phone')]);
   },
   async run(action, message) {
     if (this.data.busy) return;
@@ -62,7 +62,7 @@ export default {
   error(error) {
     this.stopPlayer();
     const text = errorMessage(error);
-    this.show('error', 'Could not complete', text, [row(this.bridge.connected() ? 'inbox' : 'connect', this.bridge.connected() ? 'Back to inbox' : 'Reconnect'), row('help', 'Setup help')]);
+    this.show('error', 'Could not complete', text, [row(this.bridge.connected() ? 'inbox' : 'connect', this.bridge.connected() ? 'Back to inbox' : 'Reconnect'), row('diagnostics', 'Connection details'), row('help', 'Setup help')]);
     this.update({ banner: '', hint: 'Back returns without sending' });
   },
   connect() { return this.run(async () => {
@@ -87,6 +87,18 @@ export default {
     this.update({ busy: true, hint: 'Closing Bluetooth…' });
     await this.bridge.close();
     if (this.visible) this.offline();
+  },
+  connectionDetails(next) {
+    if (!next) {
+      const d = this.bridge.details(); this.connectionDetailPage = 0;
+      const parts = ['App 0.9.2. Saved attempt: ' + (d.version || 'none'), 'Step: ' + (d.stage || 'Not started') + '. Attempt: ' + (d.attempt || 0),
+        'Phone: ' + (d.phone || 'Not found'), 'Services seen: ' + (Array.isArray(d.services) && d.services.length ? d.services.join(', ') : 'None listed'),
+        'Last error: ' + (d.lastError || 'None recorded')];
+      this.connectionDetailPages = [];
+      for (const part of parts) for (let offset = 0; offset < part.length; offset += 130) this.connectionDetailPages.push(part.slice(offset, offset + 130));
+    } else this.connectionDetailPage = (this.connectionDetailPage + 1) % this.connectionDetailPages.length;
+    this.show('diagnostics', 'Connection details', this.connectionDetailPages[this.connectionDetailPage],
+      [row('nextDiagnostic', 'Next detail ' + (this.connectionDetailPage + 1) + '/' + this.connectionDetailPages.length), row('connect', 'Connect to phone'), row('help', 'Setup help')]);
   },
   async openInbox() {
     const list = await this.bridge.rpc({ op: 'inbox' });
@@ -155,7 +167,9 @@ export default {
     const choice = this.menu[this.selection]; if (!choice) return;
     const id = choice.id;
     if (id === 'connect') return this.connect();
-    if (id === 'help') return this.show('help', 'Setup 0.9.1', 'Phone: Start bridge, Pair glasses. Here: Connect once and wait. Phone: Approve glasses and confirm any pairing prompt. Connection continues here.', [row('connect', 'Connect')]);
+    if (id === 'help') return this.show('help', 'Setup 0.9.2', 'Phone: Start bridge; wait for Bridge ready. First setup: Pair glasses. Here: Connect once. Approve on phone only when asked here.', [row('connect', 'Connect'), row('diagnostics', 'Connection details')]);
+    if (id === 'diagnostics') return this.connectionDetails(false);
+    if (id === 'nextDiagnostic') return this.connectionDetails(true);
     if (id === 'forget') return this.run(async () => { await this.bridge.forget(); this.offline(); });
     if (id === 'stopRecord') return this.finishCapture();
     if (id === 'stopDictation') { if (this.recognition) this.recognition.stop(); return; }
