@@ -66,10 +66,10 @@
                 android:value="3" />
             <meta-data
                 android:name="com.anezium.rokidbus.plugin.CAPABILITIES"
-                android:value="surfaces,microphone" />
+                android:value="surfaces,microphone,stt" />
             <meta-data
                 android:name="com.anezium.rokidbus.plugin.RECEIVE_PREFIXES"
-                android:value="/plugin/voicerelay,/system/plugin,/audio" />
+                android:value="/plugin/voicerelay,/system/plugin,/audio,/stt" />
             <meta-data
                 android:name="com.anezium.rokidbus.plugin.SETTINGS_ACTIVITY"
                 android:value=".VoiceRelaySettingsActivity" />
