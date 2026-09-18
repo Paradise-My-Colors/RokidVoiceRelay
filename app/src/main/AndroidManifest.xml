@@ -30,7 +30,12 @@
 
         <activity
             android:name=".VoiceRelaySettingsActivity"
-            android:exported="true" />
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
 
         <service
             android:name=".VoiceRelayNotificationListener"
@@ -54,10 +59,10 @@
             </intent-filter>
             <meta-data
                 android:name="com.anezium.rokidbus.plugin.ID"
-                android:value="voicerelay" />
+                android:value="voicerelaynexus" />
             <meta-data
                 android:name="com.anezium.rokidbus.plugin.DISPLAY_NAME"
-                android:value="Voice Relay" />
+                android:value="Voice Relay Nexus" />
             <meta-data
                 android:name="com.anezium.rokidbus.plugin.ICON"
                 android:value="mic" />
@@ -69,7 +74,7 @@
                 android:value="surfaces,microphone,stt" />
             <meta-data
                 android:name="com.anezium.rokidbus.plugin.RECEIVE_PREFIXES"
-                android:value="/plugin/voicerelay,/system/plugin,/audio,/stt" />
+                android:value="/plugin/voicerelaynexus,/system/plugin,/audio,/stt" />
             <meta-data
                 android:name="com.anezium.rokidbus.plugin.SETTINGS_ACTIVITY"
                 android:value=".VoiceRelaySettingsActivity" />
