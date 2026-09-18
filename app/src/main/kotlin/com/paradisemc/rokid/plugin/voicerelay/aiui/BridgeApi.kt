@@ -23,6 +23,7 @@ class BridgeApi(private val c: Context) {
     private var sealed = false
     @Volatile var download: File? = null
         private set
+    @Volatile private var downloadId = ""
 
     fun settings(): JSONObject = JSONObject()
         .put("telegram_enabled", NotificationDisplayPreferences.telegramEnabled(c))
@@ -106,6 +107,22 @@ class BridgeApi(private val c: Context) {
                     upload = named
                     sealed = true; success()
                 }
+                "upload_chunk" -> synchronized(this) {
+                    require(q.getString("upload") == uploadId) { "Recording expired" }
+                    val encoded = q.getString("data"); require(encoded.length <= 32768) { "Audio chunk too large" }
+                    val bytes = android.util.Base64.decode(encoded, android.util.Base64.NO_WRAP)
+                    require(bytes.size in 1..24576)
+                    append(q.getInt("offset"), bytes); success()
+                }
+                "download_chunk" -> synchronized(this) {
+                    require(q.getString("download") == downloadId && downloadId.isNotEmpty()) { "Audio selection changed" }
+                    val file = download ?: error("Choose audio first")
+                    val offset = q.getLong("offset"); require(offset >= 0 && offset < file.length())
+                    val bytes = RandomAccessFile(file, "r").use { f ->
+                        f.seek(offset); ByteArray(minOf(24576L, file.length() - offset).toInt()).also { f.readFully(it) }
+                    }
+                    success(JSONObject().put("data", android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP)))
+                }
                 "send" -> send(q, done)
                 "receipt" -> {
                     val stored = prefs.getString(q.getString("operation"), null)
@@ -116,7 +133,10 @@ class BridgeApi(private val c: Context) {
         } catch (e: Throwable) { failure(e) }
     }
 
-    private fun fileInfo(file: File) = JSONObject().put("size", file.length()).put("sha256", RelayMedia.digest(file.readBytes())).put("mime", RelayMedia.mime(file))
+    private fun fileInfo(file: File): JSONObject {
+        downloadId = UUID.randomUUID().toString()
+        return JSONObject().put("size", file.length()).put("sha256", RelayMedia.digest(file.readBytes())).put("mime", RelayMedia.mime(file)).put("download", downloadId)
+    }
 
     @Synchronized fun append(offset: Int, bytes: ByteArray) {
         val f = upload ?: error("Start a recording transfer first")

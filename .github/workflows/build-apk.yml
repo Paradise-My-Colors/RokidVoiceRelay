@@ -56,6 +56,27 @@ jobs:
           tar -xzf /tmp/jniLibs.tar.gz
           mv jniLibs app/src/main/jniLibs
 
+      - name: Build the single-page Voice Relay Link package
+        run: |
+          npm ci --prefix tools/link-build
+          node tools/link-build/build.mjs
+
+      - name: Check the actual Java HTTP server with the AIUI network client
+        shell: bash
+        run: |
+          curl --fail --location --silent --show-error https://repo.maven.apache.org/maven2/org/json/json/20240303/json-20240303.jar -o /tmp/link-json.jar
+          echo '3cf6cd6892e32e2b4c1c39e0f52f5248a2f5b37646fdfbb79a66b46b618414ed  /tmp/link-json.jar' | sha256sum -c -
+          curl --fail --location --silent --show-error https://repo.maven.apache.org/maven2/org/bouncycastle/bcprov-jdk18on/1.81/bcprov-jdk18on-1.81.jar -o /tmp/link-bc.jar
+          echo '249f396412b0c0ce67f25c8197da757b241b8be3ec4199386c00704a2457459b  /tmp/link-bc.jar' | sha256sum -c -
+          mkdir -p /tmp/link-classes
+          javac -cp /tmp/link-json.jar:/tmp/link-bc.jar -d /tmp/link-classes app/src/main/java/com/paradisemc/rokid/plugin/voicerelay/link/LinkServer.java tests/LinkHarness.java
+          VOICE_LINK_JAVA_CP=/tmp/link-classes:/tmp/link-json.jar:/tmp/link-bc.jar node tests/link.test.mjs
+
+      - name: Check bundled code in QuickJS without Web Crypto
+        run: |
+          python3 -m pip install quickjs==1.19.4
+          python3 tests/link-quickjs.py
+
       - name: Build debug APK
         run: gradle :app:assembleDebug --stacktrace
 
@@ -77,6 +98,6 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: RokidVoiceRelay-v0.9.2-AIUI-test
+          name: RokidVoiceRelay-Link-v1.0.0-test
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error

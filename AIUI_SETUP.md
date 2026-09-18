@@ -1,97 +1,74 @@
-# Voice Relay AIUI 0.9.2 — setup and connection recovery
+# Voice Relay Link 1.0.0 — new network edition
 
-## What your error means
+This version replaces the failing AIUI Bluetooth/GATT bridge with a local network connection. The Android companion retains Telegram login, received messages, settings and delivery receipts. The glasses get a new agent named **Voice Relay Link**, visibly marked **VOICE LINK 1.0.0**.
 
-The glasses establish a Bluetooth link but fail to obtain Voice Relay's GATT service (`8f1b9000-8c77-4a7a-9e52-018260091600`). In 0.9.1, the phone displayed “Glasses connected. Opening secure session…” as soon as Android reported the underlying link. That did **not** prove that the AIUI app had found the service or completed its handshake. Android documents the link callback separately from service registration and characteristic access: [BluetoothGattServerCallback](https://developer.android.com/reference/android/bluetooth/BluetoothGattServerCallback), [BluetoothGattServer](https://developer.android.com/reference/android/bluetooth/BluetoothGattServer).
+The previous 0.9.2 source already had no calls to global `crypto`. The repeated `crypto is not defined` report does not identify whether old resources were still loaded or an AIUI host module failed. This edition removes the Bluetooth dependency and the startup audio-module import, uses a distinct agent name and page route, and bundles its implementation into one page. Its startup and authenticated-encryption code have been executed in a real QuickJS engine without Web Crypto or Bluetooth. That is not a hardware test of the Rokid host.
 
-The observed error does not prove one unique cause. Delayed discovery, an old service list in the glasses runtime, and phone-side service availability remain possibilities. This update explicitly enumerates services, waits and retries exact-UUID discovery, and reconnects once after a completed failure. A native call that times out is not followed by overlapping retries. It also disconnects only once when two JavaScript wrappers represent the same native connection. The phone now verifies local service registration before advertising, distinguishes link/service/handshake/Inbox stages, and includes connection details on both devices. These changes have automated coverage; your physical glasses still need a test. The public AIUI API does not provide an app-level Bluetooth cache-reset method.
+## Required connection
 
-## Do this now — update both parts, then start in this order
+Connect the glasses and phone to the **same Wi-Fi**, or connect the glasses to **your phone's hotspot**. Keep that connection while using the app. Telegram and WhatsApp need Internet on the phone as usual. Hi Rokid's existing pairing stays in place; there is no additional Voice Relay Bluetooth Pair/Approve step.
 
-1. **Phone update:** install `RokidVoiceRelay-v0.9.2-AIUI-test.apk` over **Voice Relay AIUI 0.9 or 0.9.1**. Do not uninstall it or clear its data. The package and signing key are unchanged, so its saved Telegram login/settings remain in place. Open it and check the **0.9.2** label. The separate old Nexus-only v0.8 app is not this companion.
-2. **Glasses app update:** extract `VoiceRelay-AIUI-v0.9.2.zip` on your computer. Update the source of your Voice Relay project in AIUI Studio using the extracted `voice-relay` folder, including `lib/bridge.js`, `lib/runtime.js` and `pages/index/index.ink`. `app.json` must be at the project root. For a fresh import use **Local import** and select that folder.
-3. In AIUI Studio choose **Build & Review → Package AIX** and wait for packaging to succeed. In Hi Rokid on the phone, using the same account, select **Settings → Developer → Update glasses resource package**. Wait for **“Agent resource package downloaded successfully.”** A website preview is not the glasses installation. These are [Rokid's documented deployment steps](https://github.com/jsar-project/AIUI/blob/main/documentation/0-guide/quickstart/quickstart.en-US.md).
-4. Close Voice Relay on the glasses. On the phone open **Voice Relay AIUI → Restart Bluetooth bridge**. Allow Nearby devices if requested. Wait until the status includes **“Registered: 4 characteristics · Advertising ready.”** For this recovery attempt, **restart the glasses once**, leaving the phone bridge running, then let Hi Rokid reconnect normally. Keep the existing Hi Rokid pairing; do not unpair or reset all Bluetooth settings.
-5. On the phone tap **3. Pair glasses (first time)** to open the approval window. On the glasses open Voice Relay, verify the opening screen says **Voice Relay 0.9.2**, and tap **Connect to phone once**. Keep the page open through finding, connecting and checking the service. Keep the devices near each other and the phone unlocked for this first test.
-6. **Only if the glasses ask for approval:** tap **Approve glasses** in the phone app and confirm any Bluetooth pairing prompt. Already-approved glasses skip this. Success is **Inbox on the glasses** and **“Voice Relay connected securely · 0.9.2 · Inbox requested”** on the phone. “Bluetooth link detected” alone is not success.
-7. If the inbox is empty, check **1. Enable notification access** on the phone and enable **Voice Relay AIUI**, then receive a fresh Telegram/WhatsApp notification and choose **Refresh inbox** on the glasses. Use **Telegram setup / login** only if Telegram is not already logged in. Connection setup itself does not require logging in again.
+The phone generates the connection settings and a private key. A setup ZIP exported by your own phone is required for a working installation. The generic developer template has no key and shows setup help. Do not publish or share your phone-generated ZIP: it contains the key that authorizes access to this phone's Voice Relay link.
 
-If the same error remains after this sequence, stop retrying and open **Connection details** on both devices. Copy the phone details; on the glasses, tap **Next detail** to capture **Step**, **Services seen** and **Last error**. These distinguish a missing phone service from a glasses discovery/runtime failure. Do not clear Telegram data or forget the approved glasses just to address a missing-service error.
+## Exact first setup
 
-## Install the two parts
+1. Install **RokidVoiceRelay-Link-v1.0.0-test.apk** over the existing **Voice Relay AIUI** app. Do not uninstall or clear data. It has the same Android package ID and signing certificate as AIUI v0.9–0.9.2. The launcher is now named **Voice Relay Link**; its screen says **LINK 1.0.0 · Network edition**. The older Nexus-only v0.8 app is separate.
+2. Put the glasses and phone on the same Wi-Fi, or enable your phone hotspot and connect the glasses to it. The phone screen shows the local address it will include in the setup package. No address needs to be typed into source code.
+3. In the phone app, tap **2. Start phone link**. Allow notifications if requested. Wait for **Phone link ready · LINK 1.0.0**. Keep the phone app open during this first setup.
+4. Tap **3. Export glasses setup ZIP**. In Android's save dialog choose **Downloads** and save **VoiceRelay-Link-Setup.zip**. Copy that ZIP to your computer, for example through USB. This exported file is the ready-configured glasses app.
+5. Extract the ZIP. In [AIUI Studio Global](https://aiui-global.rokid.com/), use **Local import** and select the extracted **voice-relay-link** folder, with `app.json` directly inside it. Create the project as **Voice Relay Link** so it is distinct from the older Voice Relay agent. Do not ask Studio to regenerate or rewrite this source.
+6. Select **Build & Review → Package AIX** and wait for success. In Hi Rokid on the phone, using the same account, select **Settings → Developer → Update glasses resource package**. Wait for **Agent resource package downloaded successfully**. These are [Rokid's documented deployment steps](https://github.com/jsar-project/AIUI/blob/main/documentation/0-guide/quickstart/quickstart.en-US.md).
+7. Close the old Voice Relay agent. Say **“Hi Rokid, open Voice Relay Link.”** Before tapping anything, confirm the opening screen says **VOICE LINK 1.0.0**. Tap **Connect to phone** once. A successful connection opens **Inbox**; the phone says **Connected by Wi-Fi · Inbox ready · LINK 1.0.0**.
+8. If the inbox is empty, tap **1. Enable notification access** on the phone and enable **Voice Relay AIUI** in Android's list (that system service keeps its existing name). Disable the older separate Voice Relay listener if it duplicates alerts. Receive a fresh Telegram or WhatsApp notification and select **Refresh inbox** on the glasses.
+9. Use **Telegram setup / login** only if this companion is not already logged in. Use the same Telegram account that receives notifications. An in-place AIUI upgrade retains its session; no new login should be necessary solely for this update.
 
-1. **On the Android phone:** install `RokidVoiceRelay-v0.9.2-AIUI-test.apk` as the separate **Voice Relay AIUI** companion. Keep v0.8 installed if you want to return to it. The new app has its own package ID and storage; it does not replace v0.8 or inherit its Telegram session.
-2. Open **Voice Relay AIUI** on the phone. Tap **1. Enable notification access** and enable **Voice Relay AIUI** in Android's list. Disable access for the older **Voice Relay** to avoid duplicate alerts. Return and tap **2. Start Bluetooth bridge**. Allow Nearby devices and notifications. Leave Bluetooth enabled. If using background Nexus popups, approve the new **Voice Relay AIUI** plugin in Nexus with Surfaces and Microphone access and disable the older Voice Relay plugin/stock relay for these notifications.
-3. Open **Telegram setup / login**, enter your own Telegram API credentials and complete login on the phone using the same Telegram account that receives the notifications. This new companion needs its own session even when v0.8 is already connected. These credentials are not included in the project.
-4. **On a computer:** extract `VoiceRelay-AIUI-v0.9.2.zip`. Open [AIUI Studio Global](https://aiui-global.rokid.com/), sign in to your Rokid account, choose **Local import**, and select the extracted `voice-relay` folder containing `app.json`. Alternatively, import the `aiui/voice-relay` subdirectory from the repository's `codex/aiui-voice-relay-0.9` branch. Do not import the Android repository root.
-5. In Studio, use **Build & Review → Package AIX**. In the Hi Rokid phone app, use **Settings → Developer → Update glasses resource package**. Use the same Rokid account in both places and wait for the successful download message. Say **“Hi Rokid, open Voice Relay.”** This follows [Rokid's official device-debugging workflow](https://github.com/jsar-project/AIUI/blob/main/documentation/0-guide/quickstart/quickstart.en-US.md). Store publication is separate and is not required for this development workflow.
-6. In the phone companion, tap **3. Pair glasses (first time)**. Within three minutes, choose **Connect to phone** in the glasses app and leave the page open. Wait until the glasses ask for approval, then tap **Approve glasses** in the phone companion and confirm any Android Bluetooth pairing prompt. Approval completes automatically and the glasses continue into the inbox. Pairing and approval are needed once per glasses device.
-
-The phone must support Bluetooth LE peripheral advertising. Android 11 or later is required. The glasses runtime must expose AIUI Bluetooth, microphone capture and AudioPlayer. The phone needs Internet for Telegram and WhatsApp; the glasses-to-phone bridge uses Bluetooth and has no IP address to configure.
-
-If the earlier Hi Rokid resource-sync problem remains, complete that platform step first. Installing the companion cannot repair a missing Developer menu, account mismatch or a resource package that never reaches the glasses. A browser preview alone cannot verify this phone/glasses connection.
+A browser preview can show the interface, but it is not proof of the deployed version on your glasses. A website preview may also be unable to reach your phone's private network from its host.
 
 ## Everyday use
 
-Leave the phone bridge running (the ongoing Voice Relay notification remains visible). Open Voice Relay on the glasses and tap **Connect to phone once**. You do not need to tap Pair, Approve or Restart each time. If you stopped the bridge, open the phone app and tap **2. Start Bluetooth bridge** first. Leaving the glasses page disconnects this foreground session; reopen and Connect for the next use.
+Leave the phone link running; its ongoing notification shows that the service is active. Open **Voice Relay Link** on the glasses and tap **Connect to phone**. Swipe to choose, tap to act, and Back to return or cancel. Keep the agent page open while using it. If you stopped the service, tap **Start phone link** on the phone first.
 
-Receive a new Telegram or WhatsApp notification after enabling notification access. Open Voice Relay, connect, and select the conversation. Swipe to select; tap to act; Back returns or discards.
+If the phone's network address changes, the phone screen says **Phone address changed**. Export a new setup ZIP, import/update the Link project, Package AIX and sync again. The private key remains the same unless app data is cleared. A stable Wi-Fi address or a phone hotspot avoids frequent setup changes, although Android can change hotspot addresses too.
 
-- **Listen:** select a received voice note, then play it through the glasses. Telegram lists up to ten voice notes found in recent chat history. It verifies the chat ID before downloading. Expiring/self-destructing notes are excluded.
-- **Reply → Record a voice reply:** tap to stop, listen to the recording if needed, choose **Send as voice note** or **Send as audio file**, and confirm the recipient before sending. Voice recordings stay audio; they are not transcribed. OGG recording is limited to 60 seconds; the WAV fallback is limited to 20 seconds. Large files take longer over Bluetooth.
-- **Reply → Dictate a text note:** available when the glasses runtime supports speech recognition. Review the text, including **Read full text** for longer notes, then confirm. The runtime provides dictation; this app does not require an OpenAI key or generate automatic answers.
-- **Read full message:** pages through the captured notification text, which is limited to 500 characters. The inbox is a saved conversation list, not a full messenger history.
+## Listen and reply
 
-## Telegram and WhatsApp behavior
+- **Listen:** choose a conversation and an incoming voice message. Telegram downloads a selected recent voice note from the verified Telegram chat. WhatsApp uses an accessible audio attachment or a voice file you explicitly shared into the companion. If WhatsApp did not expose audio, share that voice message from WhatsApp to **Voice Relay AIUI** on the phone, select its conversation and refresh the inbox.
+- **Reply → Record a voice reply:** record on the glasses, tap Stop, review the recording, choose **Send as voice note** or **Send as audio file**, then confirm the recipient. Voice recordings stay audio. OGG recordings are limited to 60 seconds; the WAV fallback is limited to 20 seconds.
+- **Reply → Dictate a text note:** available if the glasses expose speech recognition. Review the full text before confirming Send. This does not require an OpenAI key or generate an automatic AI answer.
+- Telegram sends voice notes, audio files or text to an explicitly verified chat ID. WhatsApp direct replies depend on its notification actions. When direct delivery is unavailable, choose **Finish reply on phone**, select the recipient in WhatsApp, and send there. A phone handoff is never labeled as confirmed delivery.
 
-| Action | Telegram | WhatsApp / WhatsApp Business |
-| --- | --- | --- |
-| Capture notifications | Supported when enabled and notification access is granted | Supported when enabled and notification access is granted |
-| Listen on the glasses | Downloads a selected voice note through the logged-in Telegram client | Uses accessible notification audio; otherwise share the chosen voice message from WhatsApp to **Voice Relay AIUI** on the phone and select the matching conversation |
-| Send a voice note | Native Telegram voice note after confirmation | Direct audio reply only when WhatsApp exposes a compatible notification action; otherwise finish through the phone share screen |
-| Send an audio file | Telegram document containing the recording | Uses the supported audio reply/share route; WhatsApp controls whether it appears as a voice note or audio attachment |
-| Send a text note | Telegram message | Exact notification reply action when available; otherwise phone share screen |
+## Notification settings
 
-For a WhatsApp handoff, open the phone companion, tap **Finish reply on phone**, select the intended WhatsApp conversation and press Send there. Incoming WhatsApp sharing requires a saved notification from that conversation first. A **Passed to WhatsApp** receipt means WhatsApp accepted the handoff, not confirmed delivery. Voice-note versus attachment presentation cannot be forced for personal WhatsApp accounts through these interfaces.
+Open **Settings** from the glasses inbox, or use the switches in the phone app. Changes save immediately.
 
-Use the official Telegram Android app for verified AIUI routing. Telegram X and notifications without a valid chat shortcut can appear in the inbox, but listening/sending is refused if the exact chat cannot be verified. In group notifications, the captured title must match the Telegram chat. No recipient is guessed from a contact name.
+| Switch | When enabled |
+| --- | --- |
+| Telegram notifications | Capture/show Telegram conversations |
+| WhatsApp notifications | Capture/show WhatsApp and WhatsApp Business conversations |
+| Hide alerts while phone is unlocked | Quiet automatic glasses alerts while the phone is unlocked |
+| Respect Do Not Disturb | Quiet automatic alerts while Android DND is active |
+| Respect phone Silent mode | Quiet automatic alerts while the phone is in Silent mode |
+| Nexus popups when AIUI is closed | Allow optional Nexus background popups when the foreground Link page is not active |
 
-## Settings on the glasses and phone
+Turn **Respect Do Not Disturb** off to ignore DND for these app alerts. Unlocked/DND/Silent filters quiet automatic notices; saved messages remain available for manual inbox use. Turning Telegram or WhatsApp off hides that app and stops new capture. A closed AIUI page is not promised to wake automatically; background Nexus popups require Nexus and its plugin permissions.
 
-Open **Settings** from the inbox or a conversation. Changes are stored on the phone and apply to the companion's notification handling too.
+## If something fails
 
-| Setting | ON | OFF |
-| --- | --- | --- |
-| Telegram notifications | Capture and show Telegram conversations | Stop new Telegram capture and hide Telegram from the AIUI inbox |
-| WhatsApp notifications | Capture and show WhatsApp conversations | Stop new WhatsApp capture and hide WhatsApp from the AIUI inbox |
-| Hide when phone is unlocked | Suppress automatic alerts while the phone screen is on and unlocked | Allow alerts in that state |
-| Respect Do Not Disturb | Suppress automatic alerts whenever Android DND is active, or its state cannot be read | Ignore DND in Voice Relay's alert filter |
-| Respect Silent mode | Suppress automatic alerts when the phone ringer is Silent | Ignore ringer Silent mode in Voice Relay's alert filter |
-| Nexus alerts when AIUI is closed | Use the existing Nexus plugin for background popups when available | Disable those popups |
+- **You see `crypto is not defined` before VOICE LINK 1.0.0 appears:** confirm you opened **Voice Relay Link**, not Voice Relay, and that Hi Rokid finished the latest resource sync. The new bundled source contains no `crypto` or Bluetooth calls. If the correct new package still cannot render its opening screen, send a screenshot and the Hi Rokid/glasses versions; that points to package-loading or host-runtime behavior outside the phone connection.
+- **Phone not reachable:** verify both devices share the same network, the phone link is running, and the current phone address matches the exported setup. Guest Wi-Fi may isolate devices; test with the phone hotspot. If the phone address changed, export and sync a new ZIP. No Bluetooth re-pairing is required.
+- **Phone setup needed:** a generic template was imported. Use the ZIP generated by **Export glasses setup ZIP** in your phone app.
+- **QuickJS/runtime error after opening:** use **Check runtime** and **Connection details**. The latter shows the failed step, address, runtime identification and complete last error in short pages. The phone's Connection details has a Copy button; it excludes the private key.
+- **Recorder/playback unavailable:** Check runtime reports the capabilities exposed by the host. Microphone, audio playback and optional text recognition still require Rokid support and microphone permission. A network connection cannot add an absent native audio capability.
+- **Lost connection during sending:** reconnect and check the saved receipt and actual chat. The app never automatically resends an uncertain message.
 
-DND and Silent are separate. To allow alerts while both are active, switch both filters off. This does not change Android's DND setting, system volume, Bluetooth routing or operating-system notification restrictions. Quiet settings suppress automatic alerts; you can still open saved messages and deliberately play audio. Disabling an app keeps its already-saved entries on the phone; enabling it makes them available again.
+Do not uninstall the companion, clear Telegram data, reset all Bluetooth settings, or unpair Hi Rokid to address these connection errors.
 
-The AIUI page refreshes alert status while open. It does not promise to wake itself when closed. Keep Nexus enabled if you want the existing background HUD popups. Active AIUI use suppresses competing Nexus popups.
+## Implementation and validation
 
-## Recovery
+The bridge listens locally on TCP port 8766. HTTP transports authenticated AES-256-GCM-SIV envelopes, not message/audio plaintext. A 256-bit key is generated on Android and transferred only in the setup ZIP; it is not sent in requests. Each session derives a fresh key using HMAC-SHA256 and a fresh Android-generated 256-bit salt. Direction-separated nonces, authenticated request identifiers and monotonically increasing sequence numbers reject modified or replayed requests. Request sizes, open challenges and concurrent sockets are bounded. Unauthenticated endpoints return only protocol status/session challenges. No hosted relay or subscription is required.
 
-- **Phone not found:** keep the phone nearby; open the companion, start the bridge and retry Connect. Check Bluetooth and Nearby devices permission. If Android stops the bridge, use **Android battery settings** to allow it to keep running, then restart it. The service is not automatically restarted at phone boot.
-- **Service not found / QuickJS:** follow the update sequence above once. If it remains, use **Connection details** on both devices. The phone has a Copy button. On the glasses, use **Next detail** to show the step, phone ID, visible service UUIDs and full error. Send those details and confirm both version labels show 0.9.2. Do not keep re-pairing or erase Bluetooth settings.
-- **Pairing/approval fails:** use **Restart Bluetooth bridge**, then Pair glasses to reopen the three-minute approval window. Connect once on the glasses, keep the page open and approve on the phone. If necessary, use **Forget approved glasses** on the phone and **Choose a different phone** in AIUI, then repeat app approval.
-- **No conversations:** receive a fresh notification after granting access. Turn on the corresponding app toggle and use Refresh inbox. A muted chat that never posts a phone notification will not enter this notification-based inbox automatically.
-- **Telegram recipient cannot be verified:** check the companion's Telegram account and receive a fresh notification from the official Telegram app. The app stops instead of choosing a chat by name.
-- **No Telegram voice notes:** open the chat in Telegram, let it load, receive a fresh voice note and retry Listen. This build searches recent history, not an entire chat archive.
-- **WhatsApp audio unavailable:** share that particular voice note from WhatsApp to Voice Relay on the phone, select its conversation, then refresh the glasses inbox.
-- **Connection lost while sending:** reconnect and check the stored receipt. The app never automatically repeats an uncertain send. Check the actual chat before choosing **I checked the chat on my phone** or composing another reply.
-- **Microphone or playback unavailable:** allow the requested microphone permission and use a glasses runtime exposing the documented media APIs. No phone-loudspeaker fallback is used by the AIUI player. Optional text dictation may be unavailable on some runtimes.
-- **An imported/shared file expired:** share or record it again. Bridge audio is stored privately on the phone; files older than seven days are cleaned when the bridge starts. Telegram's own cache/session are managed separately by TDLib.
+The Java network server is tested with the real AIUI client logic over loopback sockets, including authentication, Unicode inbox data, all six preferences, multi-chunk audio upload/download, checksum verification, tampering, replay, cancellation, oversized requests and uncertain-send recovery. The shipped page is also executed in the QuickJS engine with Web Crypto and Bluetooth absent. The legacy behavior suite remains as a regression check. These tests do not use real Telegram/WhatsApp accounts and do not prove physical Rokid rendering, microphone or Bluetooth/Wi-Fi hardware behavior.
 
-## Validation and source
+The build verifies the Android application ID, launcher and retained signing certificate. The APK contains the exact generic Link page used by the phone ZIP exporter. Source: [RokidVoiceRelay development branch](https://github.com/Paradise-My-Colors/RokidVoiceRelay/tree/codex/aiui-voice-relay-0.9).
 
-The automated checks cover source structure, navigation, setting writes, recipient preservation, explicit confirmation, recording cancellation, late callbacks, interrupted-send recovery, text review, fragmented Unicode Bluetooth replies and audio checksums at small/large simulated MTUs. The 0.9.2 regressions additionally cover delayed/missing service discovery, exact UUID selection from enumeration, bounded reconnect, one disconnect for multiple wrappers, native-call timeouts, and diagnostics surviving page cleanup. They use runtime mocks; they do not prove device rendering or live service compatibility.
-
-The build compiles the Android APK and verifies its signature, independent application ID and launcher activity. The original upgrade check found that published v0.8 was signed with a different key from the retained development key. This build therefore installs separately as `com.paradisemc.rokid.aiui.voicerelay`, uses Nexus plugin ID `voicerelayaiui`, and explicitly selects the retained signer for future AIUI updates. It does not require deleting the older app or its data.
-
-The branch is [codex/aiui-voice-relay-0.9](https://github.com/Paradise-My-Colors/RokidVoiceRelay/tree/codex/aiui-voice-relay-0.9). Source and build history are retained there. No APK installation, real account messaging or glasses deployment was performed during automated verification. To return to v0.8, stop this app's bridge, disable its notification access/Nexus plugin and re-enable the old app's access/plugin.
-
-Before relying on the build, verify one short incoming voice note and one confirmed reply per messaging app on your devices. Check the unlocked-phone and DND toggles in both positions. WhatsApp handoffs and AIUI resource sync must be confirmed on the actual phone/glasses.
+Developer build: `npm ci --prefix tools/link-build`, `node tools/link-build/build.mjs`, then the existing Android build. The JavaScript AES implementation is bundled from [@noble/ciphers 1.3.0](https://github.com/paulmillr/noble-ciphers/tree/1.3.0) with its MIT license. The phone uses Bouncy Castle 1.81 for [AES-GCM-SIV](https://www.rfc-editor.org/rfc/rfc8452). Each encrypted response is bound to the exact request hash; repeated handshake responses cannot authenticate a different new request. The SIV mode also protects confidentiality if a network attacker replays an old challenge.

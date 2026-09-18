@@ -18,35 +18,34 @@ class AiuiSettingsActivity : Activity() {
     private val handler = Handler(Looper.getMainLooper())
     private lateinit var status: TextView
     private val refresh = object : Runnable { override fun run() {
-        status.text = AiuiBridgeService.status + "\n" + AiuiBridgeService.serviceState
-        handler.postDelayed(this, 1000)
+        status.text = LinkBridgeService.status + "\n\n" + LinkSetup.networkHint(this@AiuiSettingsActivity)
+        handler.postDelayed(this, 2000)
     } }
     override fun onCreate(state: Bundle?) {
         super.onCreate(state)
+        runCatching { stopService(Intent(this, AiuiBridgeService::class.java)) }
         val content = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(32, 40, 32, 40) }
         setContentView(ScrollView(this).apply { addView(content) })
         fun label(value: String, size: Float = 16f) { content.addView(TextView(this).apply { text = value; textSize = size; setPadding(0, 16, 0, 12) }) }
         fun button(value: String, action: () -> Unit) { content.addView(Button(this).apply { text = value; setOnClickListener { action() } }) }
-        label("Voice Relay · AIUI", 27f)
-        label("0.9.2 test build · Service discovery recovery")
-        label("Installs alongside Voice Relay v0.8. Enable notification access and Telegram login here. To avoid duplicate alerts, disable notification access for the older Voice Relay and enable only Voice Relay AIUI. Keep the old app installed if you want to return to it.")
+        label("Voice Relay Link", 27f)
+        label("LINK 1.0.0 · Network edition")
+        label("Connect the glasses and phone to the same Wi-Fi, or connect the glasses to this phone's hotspot. Start the link, then export your ready-to-import glasses package.")
         status = TextView(this).apply { textSize = 16f }; content.addView(status)
         button("1. Enable notification access") { startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) }
-        button("2. Start Bluetooth bridge") { startBridge(false) }
-        button("3. Pair glasses (first time)") { startBridge(true) }
-        button("Restart Bluetooth bridge") { startBridge(false, true) }
-        button("Connection details") {
-            val details = "Voice Relay AIUI 0.9.2\n${AiuiBridgeService.serviceState}\n${AiuiBridgeService.status}\nService: ${AiuiBridgeService.SERVICE}"
-            AlertDialog.Builder(this).setTitle("Connection details").setMessage(details).setPositiveButton("Copy") { _, _ ->
-                getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("Voice Relay connection", details))
-                Toast.makeText(this, "Connection details copied", Toast.LENGTH_SHORT).show()
-            }.setNegativeButton("Close", null).show()
+        button("2. Start phone link") { startLink() }
+        button("3. Export glasses setup ZIP") {
+            if (LinkSetup.endpoints().isEmpty()) {
+                AlertDialog.Builder(this).setMessage("Connect the phone to Wi-Fi or enable its hotspot first.").setPositiveButton("OK", null).show()
+            } else {
+                startActivityForResult(Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
+                    addCategory(Intent.CATEGORY_OPENABLE); type = "application/zip"
+                    putExtra(Intent.EXTRA_TITLE, "VoiceRelay-Link-Setup.zip")
+                }, 92)
+            }
         }
-        button("Approve glasses") {
-            AiuiBridgeService.instance?.approve()
-            status.text = AiuiBridgeService.status
-        }
-        label("Wait for Bridge ready. Open Voice Relay 0.9.2 on your glasses and tap Connect once. Keep that page open. When the glasses ask for approval, tap Approve glasses here and confirm any Bluetooth prompt. Already-approved glasses skip approval. Success means Inbox on the glasses and Voice Relay connected securely here.")
+        label("Save the ZIP, copy it to your computer, extract it and use AIUI Studio Local import. Import the voice-relay-link folder. Package AIX, then update the glasses resource package in Hi Rokid. Open Voice Relay Link: its screen must say LINK 1.0.0. Tap Connect. There is no extra Bluetooth pairing step.")
+        button("Wi-Fi / hotspot settings") { startActivity(Intent(Settings.ACTION_WIRELESS_SETTINGS)) }
         button("Telegram setup / login") { startActivity(Intent(this, TelegramSetupActivity::class.java)) }
         button("Finish reply on phone") { PhoneHandoff.openLatest(this) }
         label("Notification settings", 22f)
@@ -58,33 +57,42 @@ class AiuiSettingsActivity : Activity() {
             text = title; isChecked = settings.getBoolean(key); setPadding(0, 14, 0, 14)
             setOnCheckedChangeListener { _, value -> NotificationDisplayPreferences.setOption(this@AiuiSettingsActivity, key, value) }
         })
-        label("Silent, DND and unlocked filters quiet automatic alerts. Saved messages remain available when you open the inbox. Disabling Telegram or WhatsApp hides that app and stops new capture.")
+        label("DND, Silent and unlocked filters quiet automatic alerts. Saved messages stay in the inbox. Disabling Telegram or WhatsApp hides that app and stops new capture.")
         label("WhatsApp audio", 22f)
-        label("If Listen says audio is unavailable, share the voice message from WhatsApp to Voice Relay and choose its conversation. Replies that cannot be sent directly are held for you under Finish reply on phone. Select the recipient in WhatsApp and press Send there.")
+        label("If Listen says audio is unavailable, share the voice message from WhatsApp to Voice Relay AIUI and choose its conversation. When a reply needs phone confirmation, use Finish reply on phone and select the recipient in WhatsApp.")
+        button("Connection details") {
+            val details = "Voice Relay Link 1.0.0\n${LinkBridgeService.status}\n${LinkSetup.networkHint(this)}\nTransport: local network, encrypted messages"
+            AlertDialog.Builder(this).setTitle("Connection details").setMessage(details).setPositiveButton("Copy") { _, _ ->
+                getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("Voice Relay Link", details))
+            }.setNegativeButton("Close", null).show()
+        }
+        button("Restart phone link") { startLink(true) }
+        button("Stop phone link") { stopService(Intent(this, LinkBridgeService::class.java)); LinkBridgeService.status = "Phone link stopped" }
         button("Android battery settings") { startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)) }
         button("Existing Nexus settings") { startActivity(Intent(this, VoiceRelaySettingsActivity::class.java)) }
-        button("Stop Bluetooth bridge") { stopService(Intent(this, AiuiBridgeService::class.java)); AiuiBridgeService.status = "Bridge stopped" }
-        button("Forget approved glasses") {
-            AlertDialog.Builder(this).setMessage("Require approval again for your glasses?").setPositiveButton("Forget") { _, _ ->
-                getSharedPreferences("aiui-bridge", 0).edit().remove("trusted").apply()
-                stopService(Intent(this, AiuiBridgeService::class.java)); AiuiBridgeService.status = "Glasses forgotten"
-            }.setNegativeButton("Cancel", null).show()
-        }
     }
-    private var pairingAfterPermission = false
     private var restartAfterPermission = false
-    private fun startBridge(pair: Boolean, restart: Boolean = false) {
-        val permissions = mutableListOf<String>()
-        if (Build.VERSION.SDK_INT >= 31) permissions.addAll(listOf(Manifest.permission.BLUETOOTH_CONNECT, Manifest.permission.BLUETOOTH_ADVERTISE))
-        if (Build.VERSION.SDK_INT >= 33) permissions.add(Manifest.permission.POST_NOTIFICATIONS)
-        val missing = permissions.filter { checkSelfPermission(it) != PackageManager.PERMISSION_GRANTED }
-        if (missing.isNotEmpty()) { pairingAfterPermission = pair; restartAfterPermission = restart; requestPermissions(missing.toTypedArray(), 91); return }
-        startForegroundService(Intent(this, AiuiBridgeService::class.java).apply { if (restart) action = "restart" else if (pair) action = "pair" })
+    private fun startLink(restart: Boolean = false) {
+        if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+            restartAfterPermission = restart; requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 91); return
+        }
+        startForegroundService(Intent(this, LinkBridgeService::class.java).apply { if (restart) action = "restart" })
     }
     override fun onRequestPermissionsResult(code: Int, permissions: Array<out String>, results: IntArray) {
         super.onRequestPermissionsResult(code, permissions, results)
-        if (code == 91 && results.isNotEmpty() && results.all { it == PackageManager.PERMISSION_GRANTED }) startBridge(pairingAfterPermission, restartAfterPermission)
-        else status.text = "Allow Nearby devices and notifications, then tap Start again."
+        if (code == 91) { // Foreground operation is allowed even when notification popups were declined.
+            startForegroundService(Intent(this, LinkBridgeService::class.java).apply { if (restartAfterPermission) action = "restart" })
+        }
+    }
+    @Deprecated("Android result callback")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode != 92 || resultCode != RESULT_OK) return
+        try {
+            val uri = data?.data ?: error("Choose a save location")
+            contentResolver.openOutputStream(uri, "w").use { out -> LinkSetup.export(this, out ?: error("Cannot save ZIP")) }
+            AlertDialog.Builder(this).setMessage("Saved. Import this ZIP's voice-relay-link folder into AIUI Studio, Package AIX, and sync through Hi Rokid. Keep this setup file private; it contains your phone link key.").setPositiveButton("OK", null).show()
+        } catch (e: Exception) { AlertDialog.Builder(this).setMessage("Could not export: ${e.message}").setPositiveButton("OK", null).show() }
     }
     override fun onResume() { super.onResume(); handler.post(refresh) }
     override fun onPause() { handler.removeCallbacks(refresh); super.onPause() }

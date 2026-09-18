@@ -111,7 +111,7 @@ class VoiceRelayNoticeRuntime(context: Context) : NexusPluginCallbacks {
         if (message.app != "Test" && (!NotificationDisplayPreferences.appEnabled(appContext, message.packageName) ||
             !NotificationDisplayPreferences.shouldShowOnGlasses(appContext) ||
             !NotificationDisplayPreferences.nexusNotices(appContext) ||
-            com.paradisemc.rokid.plugin.voicerelay.aiui.AiuiBridgeService.hasActivePage())) {
+            com.paradisemc.rokid.plugin.voicerelay.aiui.LinkBridgeService.hasActivePage())) {
             pendingMessage = null
             return
         }

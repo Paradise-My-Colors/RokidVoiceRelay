@@ -2,6 +2,8 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.CHANGE_NETWORK_STATE" />
     <uses-permission android:name="android.permission.REQUEST_DELETE_PACKAGES" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
@@ -30,7 +32,7 @@
         android:supportsRtl="true"
         android:theme="@android:style/Theme.Material.Light.NoActionBar">
 
-        <activity android:name=".aiui.AiuiSettingsActivity" android:exported="true" android:label="Voice Relay AIUI">
+        <activity android:name=".aiui.AiuiSettingsActivity" android:exported="true" android:label="Voice Relay Link">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
@@ -44,7 +46,8 @@
                 <data android:mimeType="audio/*" />
             </intent-filter>
         </activity>
-        <service android:name=".aiui.AiuiBridgeService" android:exported="false" android:foregroundServiceType="connectedDevice" />
+        <service android:name=".aiui.AiuiBridgeService" android:exported="false" android:enabled="false" android:foregroundServiceType="connectedDevice" />
+        <service android:name=".aiui.LinkBridgeService" android:exported="false" android:foregroundServiceType="connectedDevice" />
         <provider android:name=".aiui.RelayAudioProvider" android:authorities="${applicationId}.audio" android:exported="false" android:grantUriPermissions="true" />
 
         <activity

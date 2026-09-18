@@ -3,3 +3,6 @@
 local.properties
 **/build/
 *.iml
+
+**/node_modules/
+app/src/main/assets/link-template/

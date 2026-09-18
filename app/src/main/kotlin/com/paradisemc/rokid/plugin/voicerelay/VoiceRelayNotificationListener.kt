@@ -81,7 +81,7 @@ class VoiceRelayNotificationListener : NotificationListenerService() {
         com.paradisemc.rokid.plugin.voicerelay.aiui.RelayMedia.captureNotificationMedia(this, message)
 
         if (!NotificationDisplayPreferences.nexusNotices(this) ||
-            com.paradisemc.rokid.plugin.voicerelay.aiui.AiuiBridgeService.hasActivePage() ||
+            com.paradisemc.rokid.plugin.voicerelay.aiui.LinkBridgeService.hasActivePage() ||
             !NotificationDisplayPreferences.shouldShowOnGlasses(this)) {
             return
         }

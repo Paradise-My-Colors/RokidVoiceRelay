@@ -1,0 +1,14 @@
+{
+  "pages": [
+    "pages/link/home"
+  ],
+  "permissions": [
+    "RECORD_AUDIO"
+  ],
+  "window": {
+    "navigationBarTitleText": "Voice Relay Link",
+    "viewport": {
+      "width": "device-width"
+    }
+  }
+}

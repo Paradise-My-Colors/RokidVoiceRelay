@@ -11,8 +11,8 @@ android {
         applicationId = "com.paradisemc.rokid.aiui.voicerelay"
         minSdk = 30
         targetSdk = 36
-        versionCode = 11
-        versionName = "0.9.2-aiui-beta"
+        versionCode = 12
+        versionName = "1.0.0-link-beta"
     }
 
     // CI must use the restored Voice Relay key, not a runner-generated default.
@@ -33,4 +33,5 @@ android {
 
 dependencies {
     implementation("com.github.Anezium.Rokid-Nexus:bus-client:sdk-v0.16.0")
+    implementation("org.bouncycastle:bcprov-jdk18on:1.81")
 }

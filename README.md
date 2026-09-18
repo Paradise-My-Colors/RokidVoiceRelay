@@ -1,6 +1,6 @@
 # Rokid Voice Relay
 
-**AIUI development build: v0.9.2-aiui-beta.** This branch adds the AIUI glasses app, a paired Android Bluetooth bridge, Telegram voice-note download/playback and voice/file/text replies, WhatsApp sharing fallback, and in-app controls for unlocked-phone alerts, DND, Silent mode and each messaging app. Start with [AIUI setup](AIUI_SETUP.md). The standalone glasses project is in [`aiui/voice-relay`](aiui/voice-relay). Hardware verification is still required.
+**Current test build: Voice Relay Link 1.0.0.** The new AIUI agent uses an encrypted local-network connection instead of the old GATT bridge. The phone exports a ready-configured AIUI ZIP. Start with [setup instructions](AIUI_SETUP.md). New source is in [`aiui/link-src`](aiui/link-src), with the bundled agent in [`aiui/voice-relay-link`](aiui/voice-relay-link). Older BLE source is retained for reference and tests, but its Android service is disabled. Physical glasses verification is still required.
 
 The AIUI companion installs separately from v0.8 to preserve the old installation despite its signing-key mismatch. It needs its own Telegram login and notification permission. The documentation below describes the retained **v0.8 Nexus experience**. The AIUI interface and WhatsApp fallback differ; follow the AIUI setup guide for this build.
 
