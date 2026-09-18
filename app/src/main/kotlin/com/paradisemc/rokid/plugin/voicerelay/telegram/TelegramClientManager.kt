@@ -216,6 +216,53 @@ class TelegramClientManager private constructor(context: Context) {
         }
     }
 
+    fun sendTextMessage(
+        target: IncomingMessage,
+        text: String,
+        callback: (Result<Long>) -> Unit,
+    ) {
+        val value = text.trim()
+        if (value.isBlank()) {
+            callback(Result.failure(IllegalArgumentException("Text reply is empty.")))
+            return
+        }
+        if (!isReady()) {
+            callback(Result.failure(IllegalStateException("Telegram is not logged in. Open Telegram setup on the phone.")))
+            return
+        }
+        resolveChat(target) { chatResult ->
+            chatResult.fold(
+                onSuccess = { chatId ->
+                    val content = JSONObject()
+                        .put("@type", "inputMessageText")
+                        .put("text", JSONObject().put("@type", "formattedText").put("text", value).put("entities", JSONArray()))
+                    request(JSONObject().put("@type", "sendMessage").put("chat_id", chatId).put("input_message_content", content)) { response ->
+                        if (response.optString("@type") == "error") {
+                            callback(Result.failure(tdError(response)))
+                            return@request
+                        }
+                        val returnedChatId = response.optLong("chat_id", chatId)
+                        val messageId = response.optLong("id", 0L)
+                        if (messageId == 0L) {
+                            callback(Result.failure(IllegalStateException("Telegram returned no message id.")))
+                            return@request
+                        }
+                        if (response.optJSONObject("sending_state") == null) {
+                            callback(Result.success(returnedChatId))
+                            return@request
+                        }
+                        val key = sendKey(returnedChatId, messageId)
+                        pendingSends[key] = callback
+                        scheduler.schedule({
+                            pendingSends.remove(key)?.invoke(Result.failure(IllegalStateException("Telegram text-send confirmation timed out.")))
+                        }, 60, TimeUnit.SECONDS)
+                    }
+                },
+                onFailure = { callback(Result.failure(it)) },
+            )
+        }
+    }
+
     fun sendAudioFile(
         target: IncomingMessage,
         filePath: String,
