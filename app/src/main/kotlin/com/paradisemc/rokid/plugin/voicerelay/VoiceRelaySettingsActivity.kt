@@ -36,7 +36,7 @@ class VoiceRelaySettingsActivity : Activity() {
         setContentView(scroll)
 
         content.addView(text("Rokid Voice Relay", 26f, true))
-        content.addView(text("Beta v0.8 · reliability + private backdrop + voice playback", 15f, false))
+        content.addView(text("Nexus v1.0 · Bluetooth-only glasses relay", 15f, false))
         content.addView(
             text(
                 "Glasses transport: Nexus Bluetooth/CXR/SPP. Voice Relay itself does not require Wi-Fi; the phone still needs internet for Telegram/WhatsApp services.",
@@ -85,6 +85,30 @@ class VoiceRelaySettingsActivity : Activity() {
         content.addView(text("Glasses notification filters", 18f, true))
         content.addView(
             toggle(
+                "Telegram notifications",
+                NotificationDisplayPreferences.telegramEnabled(this),
+            ) { enabled -> NotificationDisplayPreferences.setOption(this, "telegram_enabled", enabled) },
+        )
+        content.addView(
+            toggle(
+                "WhatsApp notifications",
+                NotificationDisplayPreferences.whatsappEnabled(this),
+            ) { enabled -> NotificationDisplayPreferences.setOption(this, "whatsapp_enabled", enabled) },
+        )
+        content.addView(
+            toggle(
+                "Automatic Nexus popups",
+                NotificationDisplayPreferences.nexusNotices(this),
+            ) { enabled -> NotificationDisplayPreferences.setOption(this, "nexus_notices", enabled) },
+        )
+        content.addView(
+            toggle(
+                "Respect Android Do Not Disturb",
+                NotificationDisplayPreferences.respectDnd(this),
+            ) { enabled -> NotificationDisplayPreferences.setRespectDnd(this, enabled) },
+        )
+        content.addView(
+            toggle(
                 "Keep glasses quiet when phone is Silent",
                 NotificationDisplayPreferences.respectPhoneSilent(this),
             ) { enabled ->
@@ -129,7 +153,7 @@ class VoiceRelaySettingsActivity : Activity() {
                     IncomingMessage(
                         app = "Test",
                         sender = "Voice Relay Test",
-                        text = "v0.8 reliability test: this notice should retry while Nexus reconnects and hide the background HUD.",
+                        text = "Nexus v1.0 test: this notice should arrive through the existing Nexus Bluetooth link.",
                         packageName = packageName,
                         notificationKey = "test-${System.currentTimeMillis()}",
                     ),
@@ -168,7 +192,7 @@ class VoiceRelaySettingsActivity : Activity() {
         content.addView(text("Glasses controls", 19f, true))
         content.addView(
             text(
-                "Inbox: Left/Up = previous, Right/Down = next. Tap a text message = voice reply. Tap a detected voice message = try playback; after playback, Tap = voice reply. Recording: Tap = stop. Confirmation: Tap = Send, Up/Left = Retake, Back = Cancel.",
+                "Inbox: Left/Up = previous, Right/Down = next. Tap a text message = voice reply. Tap a detected voice message = try playback; after playback, Tap = voice reply. Recording: Tap = stop. Confirmation: Tap = send voice note, Right/Down = send audio file (Telegram), Up/Left = Retake, Back = Cancel.",
                 15f,
                 false,
             ),

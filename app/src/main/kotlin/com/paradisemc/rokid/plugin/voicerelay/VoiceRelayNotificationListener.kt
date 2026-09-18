@@ -55,6 +55,7 @@ class VoiceRelayNotificationListener : NotificationListenerService() {
         if (!isSupportedConversationNotification(sbn)) return
 
         val app = appNameForPackage(sbn.packageName) ?: return
+        if (!NotificationDisplayPreferences.appEnabled(this, sbn.packageName)) return
         val payload = NotificationEventDeduper.extract(sbn, app) ?: return
         if (payload.text.isBlank()) return
 
@@ -76,9 +77,12 @@ class VoiceRelayNotificationListener : NotificationListenerService() {
             eventTimeMillis = payload.eventTimeMillis,
         )
         PendingMessageStore.setLastCaptured(this, message)
+        PendingMessageStore.put(this, message)
+        com.paradisemc.rokid.plugin.voicerelay.aiui.RelayMedia.captureNotificationMedia(this, message)
 
-        if (!NotificationDisplayPreferences.shouldShowOnGlasses(this)) {
-            PendingMessageStore.put(this, message)
+        if (!NotificationDisplayPreferences.nexusNotices(this) ||
+            com.paradisemc.rokid.plugin.voicerelay.aiui.LinkBridgeService.hasActivePage() ||
+            !NotificationDisplayPreferences.shouldShowOnGlasses(this)) {
             return
         }
 
@@ -88,7 +92,8 @@ class VoiceRelayNotificationListener : NotificationListenerService() {
     override fun onNotificationRemoved(sbn: StatusBarNotification?) {
         sbn ?: return
         if (appNameForPackage(sbn.packageName) == null) return
-        PendingMessageStore.removeByNotificationKey(this, sbn.key)
+        // Phone dismissal must not destroy the saved glasses inbox. A stale
+        // WhatsApp inline reply is detected at send time; never guess a chat.
         VoiceRelayPluginService.notifyInboxChanged()
     }
 
@@ -169,6 +174,25 @@ class VoiceRelayNotificationListener : NotificationListenerService() {
         fun sendAudioDataReply(target: IncomingMessage, uri: Uri, mimeType: String): Boolean {
             val listener = current ?: return false
             return listener.trySendAudioDataReply(target, uri, mimeType)
+        }
+
+        fun sendTextReply(target: IncomingMessage, text: String): Boolean {
+            val listener = current ?: return false
+            return runCatching {
+                val candidates = listener.activeNotifications.filter {
+                    it.packageName == target.packageName &&
+                        ((!target.notificationKey.isNullOrBlank() && it.key == target.notificationKey) ||
+                        (!target.shortcutId.isNullOrBlank() && it.notification.shortcutId == target.shortcutId))
+                }
+                val sbn = candidates.singleOrNull() ?: return@runCatching false
+                val pair = sbn.notification.actions.orEmpty().asSequence().flatMap { action ->
+                    action.remoteInputs.orEmpty().asSequence().filter { it.allowFreeFormInput }.map { action to it }
+                }.firstOrNull() ?: return@runCatching false
+                val fill = Intent()
+                RemoteInput.addResultsToIntent(arrayOf(pair.second), fill, android.os.Bundle().apply { putCharSequence(pair.second.resultKey, text) })
+                pair.first.actionIntent.send(listener, 0, fill)
+                true
+            }.getOrDefault(false)
         }
 
         private fun mimeMatches(allowed: String, actual: String): Boolean {

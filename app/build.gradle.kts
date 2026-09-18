@@ -10,8 +10,17 @@ android {
         applicationId = "com.paradisemc.rokid.plugin.voicerelay"
         minSdk = 30
         targetSdk = 36
-        versionCode = 8
-        versionName = "0.8.0"
+        versionCode = 10
+        versionName = "1.0.0-nexus"
+    }
+
+    providers.environmentVariable("VOICE_RELAY_SIGNING_FILE").orNull?.let { signingFile ->
+        signingConfigs.getByName("debug") {
+            storeFile = file(signingFile)
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
     }
 
     compileOptions {

@@ -7,6 +7,8 @@ import android.media.MediaMuxer
 import android.net.Uri
 import java.io.File
 import java.io.InputStream
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
 import java.util.concurrent.Executors
 import kotlin.math.max
 
@@ -48,12 +50,13 @@ object OpusVoiceEncoder {
             val input = context.contentResolver.openInputStream(Uri.parse(sourceUri))
                 ?: error("Could not open the recorded voice note.")
             input.use {
-                skipFully(it, WAV_HEADER_BYTES)
+                val wav = readWav(it)
+                var remainingPcm = wav[2].toLong()
 
                 val format = MediaFormat.createAudioFormat(
                     MediaFormat.MIMETYPE_AUDIO_OPUS,
-                    SAMPLE_RATE,
-                    CHANNELS,
+                    wav[0],
+                    wav[1],
                 ).apply {
                     setInteger(MediaFormat.KEY_BIT_RATE, BIT_RATE)
                     setInteger(MediaFormat.KEY_MAX_INPUT_SIZE, 8192)
@@ -74,18 +77,20 @@ object OpusVoiceEncoder {
                 var outputDone = false
                 var totalPcmBytes = 0L
                 val info = MediaCodec.BufferInfo()
+                val deadline = android.os.SystemClock.elapsedRealtime() + 30_000L
 
                 while (!outputDone) {
+                    check(android.os.SystemClock.elapsedRealtime() < deadline) { "Audio encoder timed out" }
                     if (!inputDone) {
                         val inputIndex = codec!!.dequeueInputBuffer(10_000)
                         if (inputIndex >= 0) {
                             val buffer = codec!!.getInputBuffer(inputIndex)
                                 ?: error("Opus encoder input buffer unavailable.")
                             buffer.clear()
-                            val chunk = ByteArray(minOf(buffer.remaining(), 8192))
-                            val read = it.read(chunk)
+                            val chunk = ByteArray(minOf(buffer.remaining(), 8192, remainingPcm.toInt()))
+                            val read = if (remainingPcm == 0L) -1 else it.read(chunk)
                             val presentationTimeUs =
-                                (totalPcmBytes / PCM_BYTES_PER_SAMPLE) * 1_000_000L / SAMPLE_RATE
+                                (totalPcmBytes / (PCM_BYTES_PER_SAMPLE * wav[1])) * 1_000_000L / wav[0]
 
                             if (read < 0) {
                                 codec!!.queueInputBuffer(
@@ -106,6 +111,7 @@ object OpusVoiceEncoder {
                                     0,
                                 )
                                 totalPcmBytes += read
+                                remainingPcm -= read
                             }
                         }
                     }
@@ -120,7 +126,7 @@ object OpusVoiceEncoder {
                         }
                         else -> if (outputIndex >= 0) {
                             val buffer = codec!!.getOutputBuffer(outputIndex)
-                            if (buffer != null && info.size > 0 && muxerStarted) {
+                            if (buffer != null && info.size > 0 && muxerStarted && info.flags and MediaCodec.BUFFER_FLAG_CODEC_CONFIG == 0) {
                                 buffer.position(info.offset)
                                 buffer.limit(info.offset + info.size)
                                 muxer!!.writeSampleData(trackIndex, buffer, info)
@@ -158,5 +164,35 @@ object OpusVoiceEncoder {
                 remaining--
             }
         }
+    }
+
+    /** MediaRecorder WAVs may include extra RIFF chunks and use a different sample rate. */
+    private fun readWav(input: InputStream): IntArray {
+        fun bytes(count: Int): ByteArray {
+            val data = ByteArray(count); var n = 0
+            while (n < count) { val read = input.read(data, n, count - n); check(read > 0) { "Truncated WAV" }; n += read }
+            return data
+        }
+        fun number(data: ByteArray, at: Int) = ByteBuffer.wrap(data, at, 4).order(ByteOrder.LITTLE_ENDIAN).int
+        val header = bytes(12)
+        check(String(header, 0, 4) == "RIFF" && String(header, 8, 4) == "WAVE") { "Recording is not WAV" }
+        var rate = 0; var channels = 0
+        repeat(64) {
+            val h = bytes(8); val size = number(h, 4)
+            check(size in 0..(12 * 1024 * 1024)) { "Invalid WAV chunk size" }
+            when (String(h, 0, 4)) {
+                "fmt " -> {
+                    check(size in 16..4096); val fmt = bytes(size)
+                    val f = ByteBuffer.wrap(fmt).order(ByteOrder.LITTLE_ENDIAN)
+                    check(f.getShort(0).toInt() == 1 && f.getShort(14).toInt() == 16) { "WAV must contain 16-bit PCM" }
+                    rate = f.getInt(4); channels = f.getShort(2).toInt()
+                    check(rate in 8000..48000 && channels in 1..2) { "Unsupported recording format" }
+                }
+                "data" -> { check(rate > 0 && size > 0 && size % (channels * 2) == 0); return intArrayOf(rate, channels, size) }
+                else -> skipFully(input, size.toLong())
+            }
+            if (size % 2 == 1) skipFully(input, 1)
+        }
+        error("WAV data not found")
     }
 }
