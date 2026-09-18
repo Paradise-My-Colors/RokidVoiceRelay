@@ -30,5 +30,5 @@ android {
 }
 
 dependencies {
-    implementation("com.github.Anezium.Rokid-Nexus:bus-client:sdk-v0.16.0")
+    implementation("com.github.Anezium.Rokid-Nexus:bus-client:sdk-v0.17.0")
 }
