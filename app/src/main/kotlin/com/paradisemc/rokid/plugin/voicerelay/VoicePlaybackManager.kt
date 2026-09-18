@@ -7,7 +7,10 @@ import android.media.AudioManager
 import android.media.MediaPlayer
 import android.net.Uri
 import android.os.Build
+import com.paradisemc.rokid.plugin.voicerelay.telegram.TelegramClientManager
 import com.paradisemc.rokid.plugin.voicerelay.telegram.TelegramVoiceSender
+import android.os.Handler
+import android.os.Looper
 import java.util.concurrent.atomic.AtomicReference
 
 /**
@@ -29,17 +32,44 @@ object VoicePlaybackManager {
         callback: (Result<Unit>) -> Unit,
     ) {
         val mediaUri = message.mediaUri?.takeIf { it.isNotBlank() }
-        if (mediaUri == null) {
-            val detail = when {
-                TelegramVoiceSender.isTelegram(message) ->
-                    "Telegram identified this as a voice message, but this Telegram notification did not expose its audio file to Android."
-                else ->
-                    "WhatsApp identified this as a voice message, but WhatsApp did not expose the encrypted audio file to Android."
+        if (mediaUri == null && TelegramVoiceSender.isTelegram(message)) {
+            val manager = TelegramClientManager.get(context)
+            manager.start()
+            manager.listVoiceNotes(message) { listed ->
+                listed.fold(
+                    onFailure = { callback(Result.failure(it)) },
+                    onSuccess = { notes ->
+                        if (notes.length() == 0) {
+                            callback(Result.failure(IllegalStateException("No recent incoming Telegram voice note was found for this conversation.")))
+                        } else {
+                            val id = notes.getJSONObject(0).optString("message").toLongOrNull()
+                            if (id == null) callback(Result.failure(IllegalStateException("Telegram returned an invalid voice-note id.")))
+                            else manager.downloadVoice(message, id) { downloaded ->
+                                downloaded.fold(
+                                    onFailure = { callback(Result.failure(it)) },
+                                    onSuccess = { file -> Handler(Looper.getMainLooper()).post { playSource(context, file.absolutePath, null, callback) } },
+                                )
+                            }
+                        }
+                    },
+                )
             }
-            callback(Result.failure(IllegalStateException(detail)))
+            return
+        }
+        if (mediaUri == null) {
+            callback(Result.failure(IllegalStateException("WhatsApp identified this as a voice message, but WhatsApp did not expose the encrypted audio file to Android. Open/share the message on the phone if playback is needed.")))
             return
         }
 
+        playSource(context, null, mediaUri, callback)
+    }
+
+    private fun playSource(
+        context: Context,
+        filePath: String?,
+        mediaUri: String?,
+        callback: (Result<Unit>) -> Unit,
+    ) {
         val appContext = context.applicationContext
         val audioManager = appContext.getSystemService(AudioManager::class.java)
         val bluetoothOutput = audioManager?.getDevices(AudioManager.GET_DEVICES_OUTPUTS)
@@ -70,7 +100,7 @@ object VoicePlaybackManager {
                         .build(),
                 )
                 player.preferredDevice = bluetoothOutput
-                player.setDataSource(appContext, Uri.parse(mediaUri))
+                if (filePath != null) player.setDataSource(filePath) else player.setDataSource(appContext, Uri.parse(requireNotNull(mediaUri)))
                 player.setOnCompletionListener {
                     if (active.compareAndSet(it, null)) it.release()
                     callback(Result.success(Unit))
