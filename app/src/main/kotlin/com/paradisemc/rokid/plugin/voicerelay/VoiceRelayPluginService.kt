@@ -140,14 +140,15 @@ class VoiceRelayPluginService : NexusPluginService() {
         if (pendingRecording != null) {
             when (event.keyCode) {
                 KeyEvent.KEYCODE_DPAD_CENTER,
-                KeyEvent.KEYCODE_ENTER -> sendPendingRecording()
+                KeyEvent.KEYCODE_ENTER -> sendPendingRecording(asFile = false)
+
+                KeyEvent.KEYCODE_DPAD_DOWN,
+                KeyEvent.KEYCODE_DPAD_RIGHT -> sendPendingRecording(asFile = true)
 
                 KeyEvent.KEYCODE_DPAD_UP,
                 KeyEvent.KEYCODE_DPAD_LEFT -> retakeRecording()
 
-                KeyEvent.KEYCODE_BACK,
-                KeyEvent.KEYCODE_DPAD_DOWN,
-                KeyEvent.KEYCODE_DPAD_RIGHT -> discardPendingAndReturn()
+                KeyEvent.KEYCODE_BACK -> discardPendingAndReturn()
             }
             return
         }
@@ -392,7 +393,7 @@ class VoiceRelayPluginService : NexusPluginService() {
                 title = "Voice note ready",
                 lines = lines.take(4),
                 footer = if (telegram || whatsapp) {
-                    "tap send · ↑/← retake · back cancel"
+                    "tap voice · →/↓ audio file · ↑/← retake · back cancel"
                 } else {
                     "↑/← retake · back cancel"
                 },
@@ -401,14 +402,45 @@ class VoiceRelayPluginService : NexusPluginService() {
         )
     }
 
-    private fun sendPendingRecording() {
+    private fun sendPendingRecording(asFile: Boolean) {
         val target = offeredMessage ?: return
         val recording = pendingRecording ?: return
         when {
+            TelegramVoiceSender.isTelegram(target) && asFile -> sendTelegramFile(target, recording)
             TelegramVoiceSender.isTelegram(target) -> sendTelegram(target, recording)
-            WhatsAppVoiceSender.isWhatsApp(target) -> sendWhatsApp(target, recording)
+            WhatsAppVoiceSender.isWhatsApp(target) -> sendWhatsApp(target, recording, asFile)
             else -> showConfirmation("This messaging app does not have a sender yet.")
         }
+    }
+
+    private fun sendTelegramFile(target: IncomingMessage, recording: PublishedRecording) {
+        sending = true
+        showResultCard("Sending audio file…", "${target.app} · ${target.sender}\nSending the WAV recording as an ordinary Telegram file.")
+        Thread {
+            val result = runCatching {
+                val temp = java.io.File.createTempFile("voicerelay_audio_", ".wav", cacheDir)
+                contentResolver.openInputStream(android.net.Uri.parse(recording.uri)).use { input ->
+                    requireNotNull(input) { "Could not open the recording." }
+                    temp.outputStream().use { output -> input.copyTo(output) }
+                }
+                temp
+            }
+            result.fold(
+                onSuccess = { file ->
+                    TelegramClientManager.get(this).sendAudioFile(target, file.absolutePath) { sent ->
+                        file.delete()
+                        main.post {
+                            sending = false
+                            sent.fold(
+                                onSuccess = { finishSuccessfulSend(target, "Audio file sent to ${target.sender.clean(60)}.") },
+                                onFailure = { error -> showConfirmation(error.message ?: "Telegram audio-file send failed.") },
+                            )
+                        }
+                    }
+                },
+                onFailure = { error -> main.post { sending = false; showConfirmation(error.message ?: "Could not prepare audio file.") } },
+            )
+        }.start()
     }
 
     private fun sendTelegram(target: IncomingMessage, recording: PublishedRecording) {
@@ -428,11 +460,11 @@ class VoiceRelayPluginService : NexusPluginService() {
         }
     }
 
-    private fun sendWhatsApp(target: IncomingMessage, recording: PublishedRecording) {
+    private fun sendWhatsApp(target: IncomingMessage, recording: PublishedRecording, asFile: Boolean) {
         sending = true
         showResultCard(
-            "Sending…",
-            "${target.app} · ${target.sender}\nTrying WhatsApp notification/Android voice-message transport.",
+            if (asFile) "Sending audio…" else "Sending…",
+            "${target.app} · ${target.sender}\n" + if (asFile) "Trying WhatsApp's supported audio attachment route." else "Trying WhatsApp notification/Android voice-message transport.",
         )
         WhatsAppVoiceSender.send(this, target, recording) { result ->
             main.post {
