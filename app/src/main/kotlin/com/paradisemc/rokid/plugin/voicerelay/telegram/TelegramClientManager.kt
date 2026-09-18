@@ -216,6 +216,55 @@ class TelegramClientManager private constructor(context: Context) {
         }
     }
 
+    fun sendAudioFile(
+        target: IncomingMessage,
+        filePath: String,
+        callback: (Result<Long>) -> Unit,
+    ) {
+        if (!isReady()) {
+            callback(Result.failure(IllegalStateException("Telegram is not logged in. Open Telegram setup on the phone.")))
+            return
+        }
+        resolveChat(target) { chatResult ->
+            chatResult.fold(
+                onSuccess = { chatId ->
+                    val content = JSONObject()
+                        .put("@type", "inputMessageDocument")
+                        .put("document", JSONObject().put("@type", "inputFileLocal").put("path", filePath))
+                        .put("thumbnail", JSONObject.NULL)
+                        .put("disable_content_type_detection", false)
+                        .put("caption", JSONObject().put("@type", "formattedText").put("text", "").put("entities", JSONArray()))
+                    val send = JSONObject()
+                        .put("@type", "sendMessage")
+                        .put("chat_id", chatId)
+                        .put("input_message_content", content)
+                    request(send) { response ->
+                        if (response.optString("@type") == "error") {
+                            callback(Result.failure(tdError(response)))
+                            return@request
+                        }
+                        val returnedChatId = response.optLong("chat_id", chatId)
+                        val messageId = response.optLong("id", 0L)
+                        if (messageId == 0L) {
+                            callback(Result.failure(IllegalStateException("Telegram returned no message id.")))
+                            return@request
+                        }
+                        if (response.optJSONObject("sending_state") == null) {
+                            callback(Result.success(returnedChatId))
+                            return@request
+                        }
+                        val key = sendKey(returnedChatId, messageId)
+                        pendingSends[key] = callback
+                        scheduler.schedule({
+                            pendingSends.remove(key)?.invoke(Result.failure(IllegalStateException("Telegram file-send confirmation timed out.")))
+                        }, 60, TimeUnit.SECONDS)
+                    }
+                },
+                onFailure = { callback(Result.failure(it)) },
+            )
+        }
+    }
+
     /** AIUI never resolves a recipient by a display-name guess. */
     private fun exactChat(target: IncomingMessage, callback: (Result<Long>) -> Unit) {
         if (!isReady()) { callback(Result.failure(IllegalStateException("Complete Telegram login on the phone"))); return }
