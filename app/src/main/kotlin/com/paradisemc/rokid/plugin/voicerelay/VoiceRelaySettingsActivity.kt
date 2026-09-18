@@ -189,10 +189,14 @@ class VoiceRelaySettingsActivity : Activity() {
         )
 
         spacer(content, 22)
+        content.addView(text("Speech-to-text permission", 19f, true))
+        content.addView(text("Dictated text replies use Nexus's Speech to text capability. After installing this version, re-approve Voice Relay in Nexus Plugin access and grant Surfaces, Microphone and Speech to text.", 14f, false))
+
+        spacer(content, 22)
         content.addView(text("Glasses controls", 19f, true))
         content.addView(
             text(
-                "Inbox: Left/Up = previous, Right/Down = next. Tap a text message = voice reply. Tap a detected voice message = try playback; after playback, Tap = voice reply. Recording: Tap = stop. Confirmation: Tap = send voice note, Right/Down = send audio file (Telegram), Up/Left = Retake, Back = Cancel.",
+                "Inbox: Left/Up = previous, Right/Down = next. Tap opens reply options (voice messages play first). Reply options: Tap = record voice note, Right/Down = dictate text with Nexus STT. Recording: Tap = stop. Recording confirmation: Tap = send voice note, Right/Down = send ordinary audio file (Telegram), Up/Left = Retake, Back = Cancel. Dictated text is always shown for review before Tap sends it.",
                 15f,
                 false,
             ),
