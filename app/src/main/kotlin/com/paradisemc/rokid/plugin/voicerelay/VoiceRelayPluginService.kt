@@ -10,6 +10,11 @@ import com.anezium.rokidbus.client.plugin.NexusAudioStopReason
 import com.anezium.rokidbus.client.plugin.NexusCard
 import com.anezium.rokidbus.client.plugin.NexusPluginService
 import com.anezium.rokidbus.client.plugin.NexusSdkResult
+import com.anezium.rokidbus.client.plugin.NexusSpeechCallbacks
+import com.anezium.rokidbus.client.plugin.NexusSpeechError
+import com.anezium.rokidbus.client.plugin.NexusSpeechSession
+import com.anezium.rokidbus.client.plugin.NexusSpeechState
+import com.anezium.rokidbus.client.plugin.NexusSpeechStopReason
 import com.anezium.rokidbus.client.plugin.NexusSurfaceSession
 import com.anezium.rokidbus.shared.plugin.NexusInputEvent
 import com.paradisemc.rokid.plugin.voicerelay.telegram.TelegramAuthStage
@@ -32,6 +37,9 @@ class VoiceRelayPluginService : NexusPluginService() {
     private var sending = false
     private var playing = false
     private var playbackFinished = false
+    private var showingReplyMenu = false
+    private var speech: NexusSpeechSession? = null
+    private var dictatedText: String? = null
     private var pluginOpen = false
     private var openGeneration = 0
 
@@ -53,6 +61,8 @@ class VoiceRelayPluginService : NexusPluginService() {
         openGeneration += 1
         main.removeCallbacksAndMessages(null)
         VoicePlaybackManager.stop()
+        speech?.stop()
+        speech = null
         if (audio != null) {
             keepRecordingOnStop = false
             audio?.stop()
@@ -88,6 +98,10 @@ class VoiceRelayPluginService : NexusPluginService() {
         pluginOpen = false
         openGeneration += 1
         VoicePlaybackManager.stop()
+        speech?.stop()
+        speech = null
+        dictatedText = null
+        showingReplyMenu = false
         playing = false
         playbackFinished = false
         if (audio != null) {
@@ -101,6 +115,40 @@ class VoiceRelayPluginService : NexusPluginService() {
 
     override fun onNexusInput(event: NexusInputEvent) {
         if (event.action != KeyEvent.ACTION_DOWN) return
+
+        if (speech != null) {
+            if (event.keyCode == KeyEvent.KEYCODE_BACK) {
+                speech?.stop()
+                speech = null
+                showReplyMenu()
+            }
+            return
+        }
+
+        if (dictatedText != null) {
+            when (event.keyCode) {
+                KeyEvent.KEYCODE_DPAD_CENTER,
+                KeyEvent.KEYCODE_ENTER -> sendDictatedText()
+                KeyEvent.KEYCODE_DPAD_UP,
+                KeyEvent.KEYCODE_DPAD_LEFT -> beginDictation()
+                KeyEvent.KEYCODE_BACK -> {
+                    dictatedText = null
+                    showReplyMenu()
+                }
+            }
+            return
+        }
+
+        if (showingReplyMenu) {
+            when (event.keyCode) {
+                KeyEvent.KEYCODE_DPAD_CENTER,
+                KeyEvent.KEYCODE_ENTER -> beginVoiceRecording()
+                KeyEvent.KEYCODE_DPAD_DOWN,
+                KeyEvent.KEYCODE_DPAD_RIGHT -> beginDictation()
+                KeyEvent.KEYCODE_BACK -> showInbox()
+            }
+            return
+        }
 
         if (playing) {
             if (event.keyCode == KeyEvent.KEYCODE_BACK) {
@@ -127,7 +175,7 @@ class VoiceRelayPluginService : NexusPluginService() {
                 KeyEvent.KEYCODE_DPAD_CENTER,
                 KeyEvent.KEYCODE_ENTER -> {
                     playbackFinished = false
-                    beginVoiceRecording()
+                    showReplyMenu()
                 }
                 KeyEvent.KEYCODE_BACK -> {
                     playbackFinished = false
@@ -172,7 +220,7 @@ class VoiceRelayPluginService : NexusPluginService() {
                     inboxIndex = inboxIndex.coerceIn(0, messages.lastIndex)
                     offeredMessage = messages[inboxIndex]
                     if (offeredMessage?.voiceMessage == true) playVoiceMessage(offeredMessage!!)
-                    else beginVoiceRecording()
+                    else showReplyMenu()
                 }
             }
 
@@ -197,6 +245,8 @@ class VoiceRelayPluginService : NexusPluginService() {
 
     private fun showInbox(): NexusSdkResult {
         showingInbox = true
+        showingReplyMenu = false
+        dictatedText = null
         sending = false
         playbackFinished = false
         pendingRecording = null
@@ -250,13 +300,129 @@ class VoiceRelayPluginService : NexusPluginService() {
                 playbackFinished = true
                 result.fold(
                     onSuccess = {
-                        showResultCard("Finished", "Voice message played.\nTap to record a reply · back inbox")
+                        showResultCard("Finished", "Voice message played.\nTap for reply options · back inbox")
                     },
                     onFailure = { error ->
-                        showResultCard("Playback unavailable", "${error.message ?: "Could not play this voice message."}\nTap to record a reply")
+                        showResultCard("Playback unavailable", "${error.message ?: "Could not play this voice message."}\nTap for reply options")
                     },
                 )
             }
+        }
+    }
+
+    private fun showReplyMenu() {
+        if (offeredMessage == null) return showInbox().let { Unit }
+        showingInbox = false
+        showingReplyMenu = true
+        dictatedText = null
+        surface = surface ?: nexusSurfaceSession("reply")
+        surface?.showCard(
+            NexusCard(
+                title = "Reply to ${offeredMessage?.sender.orEmpty().clean(42)}",
+                lines = listOf("Tap = record voice note", "Right/Down = dictate text"),
+                footer = "back inbox",
+                handlesBack = true,
+            ),
+        )
+    }
+
+    private fun beginDictation() {
+        val target = offeredMessage ?: return
+        if (audio != null || speech != null) return
+        showingReplyMenu = false
+        dictatedText = null
+        surface = surface ?: nexusSurfaceSession("reply")
+        surface?.showCard(
+            NexusCard(
+                title = "Dictate text",
+                lines = listOf("Speak your reply to ${target.sender.clean(42)}.", "Nexus will show the final text before sending."),
+                footer = "back cancel",
+                handlesBack = true,
+            ),
+        )
+        val session = nexusSpeechSession(object : NexusSpeechCallbacks {
+            override fun onSpeechStarted(realtime: Boolean) = Unit
+            override fun onSpeechState(state: NexusSpeechState) = Unit
+            override fun onSpeechPartial(text: String) {
+                if (text.isNotBlank()) {
+                    surface?.showCard(
+                        NexusCard(
+                            title = "Listening…",
+                            lines = listOf(text.clean(240)),
+                            footer = "back cancel",
+                            handlesBack = true,
+                        ),
+                    )
+                }
+            }
+            override fun onSpeechFinal(text: String) {
+                val finalText = text.trim()
+                if (finalText.isBlank()) return
+                dictatedText = finalText
+                showDictationReview()
+            }
+            override fun onSpeechStopped(reason: NexusSpeechStopReason, error: NexusSpeechError?) {
+                speech = null
+                if (dictatedText == null && reason != NexusSpeechStopReason.COMPLETED) {
+                    showResultCard("Dictation stopped", error?.detail?.takeIf { it.isNotBlank() } ?: reason.toString())
+                }
+            }
+        }) ?: run {
+            showResultCard("Dictation unavailable", "Update Rokid Nexus and grant Speech to text for Voice Relay.")
+            return
+        }
+        speech = session
+        when (val result = session.start(language = "auto")) {
+            NexusSdkResult.SENT -> Unit
+            else -> {
+                speech = null
+                showResultCard("Dictation unavailable", "$result. Grant Speech to text for Voice Relay in Nexus Plugin access.")
+            }
+        }
+    }
+
+    private fun showDictationReview() {
+        val text = dictatedText ?: return
+        showingReplyMenu = false
+        surface = surface ?: nexusSurfaceSession("reply")
+        surface?.showCard(
+            NexusCard(
+                title = "Text ready",
+                lines = listOf(text.clean(300)),
+                footer = "tap send · ↑/← re-dictate · back cancel",
+                handlesBack = true,
+            ),
+        )
+    }
+
+    private fun sendDictatedText() {
+        val target = offeredMessage ?: return
+        val text = dictatedText?.trim().orEmpty()
+        if (text.isBlank()) return
+        sending = true
+        showResultCard("Sending text…", "${target.app} · ${target.sender}")
+        if (VoiceRelayNotificationListener.sendTextReply(target, text)) {
+            dictatedText = null
+            sending = false
+            finishSuccessfulSend(target, "Text reply sent to ${target.sender.clean(60)}.")
+            return
+        }
+        if (TelegramVoiceSender.isTelegram(target)) {
+            TelegramClientManager.get(this).sendTextMessage(target, text) { result ->
+                main.post {
+                    sending = false
+                    result.fold(
+                        onSuccess = {
+                            dictatedText = null
+                            finishSuccessfulSend(target, "Text reply sent to ${target.sender.clean(60)}.")
+                        },
+                        onFailure = { error -> showResultCard("Text send failed", error.message ?: "Telegram could not send this text.") },
+                    )
+                }
+            }
+        } else {
+            sending = false
+            showResultCard("Phone reply unavailable", "The WhatsApp notification no longer exposes a text-reply action. The message stays in the inbox.")
         }
     }
 
@@ -264,6 +430,7 @@ class VoiceRelayPluginService : NexusPluginService() {
         if (audio != null || offeredMessage == null) return
         pendingRecording = null
         showingInbox = false
+        showingReplyMenu = false
         playbackFinished = false
         recordingStarted = false
         keepRecordingOnStop = true
