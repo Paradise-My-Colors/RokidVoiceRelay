@@ -30,7 +30,7 @@ engine.eval('''
 var page = Object.assign({}, definition, {data:JSON.parse(JSON.stringify(definition.data)),setData:function(patch){Object.assign(this.data,patch);}});
 page.onLoad();
 if (typeof crypto !== 'undefined') throw new Error('Crypto must be absent');
-if (page.data.title !== 'VOICE LINK 1.0.0') throw new Error('Page did not start');
+if (page.data.title !== 'VOICE LINK 1.1.0') throw new Error('Page did not start');
 page.runtimeCheck();
 if (page.data.detail.indexOf('Network: no') < 0) throw new Error('Capability handling failed');
 var result = null;
