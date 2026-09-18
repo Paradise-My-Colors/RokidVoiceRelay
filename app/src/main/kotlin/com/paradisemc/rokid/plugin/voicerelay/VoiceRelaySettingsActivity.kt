@@ -26,7 +26,7 @@ class VoiceRelaySettingsActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        title = "Voice Relay"
+        title = "Voice Relay Nexus"
 
         val content = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -35,7 +35,7 @@ class VoiceRelaySettingsActivity : Activity() {
         val scroll = ScrollView(this).apply { addView(content) }
         setContentView(scroll)
 
-        content.addView(text("Rokid Voice Relay", 26f, true))
+        content.addView(text("Rokid Voice Relay Nexus", 26f, true))
         content.addView(text("Nexus v1.0 · Bluetooth-only glasses relay", 15f, false))
         content.addView(
             text(
