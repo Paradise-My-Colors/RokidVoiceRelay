@@ -77,18 +77,16 @@ jobs:
           test -s "$APK"
           unzip -t "$APK" >/dev/null
           "$APKSIGNER" verify --verbose --print-certs "$APK"
-          "$AAPT" dump badging "$APK" | head -n 8
+          BADGING=$("$AAPT" dump badging "$APK")
+          echo "$BADGING" | head -n 8
+          echo "$BADGING" | grep -q "package: name='com.paradisemc.rokid.plugin.voicerelay.nexus'"
+          echo "$BADGING" | grep -q "versionCode='1'"
+          "$AAPT" dump xmltree "$APK" AndroidManifest.xml | grep -q "voicerelaynexus"
 
-          curl -L --fail --retry 3             "https://github.com/Paradise-My-Colors/RokidVoiceRelay/releases/download/v0.8/RokidVoiceRelay-v0.8.apk"             -o /tmp/voice-relay-v0.8.apk
-          OLD=$("$APKSIGNER" verify --print-certs /tmp/voice-relay-v0.8.apk | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | head -1)
-          NEW=$("$APKSIGNER" verify --print-certs "$APK" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | head -1)
-          echo "v0.8 signer: $OLD"
-          echo "v1.0 signer: $NEW"
-          test -n "$OLD" && test "$OLD" = "$NEW"
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: RokidVoiceRelay-Nexus-v1.0-test
+          name: RokidVoiceRelay-Nexus-v1.0.1-clean-install
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
