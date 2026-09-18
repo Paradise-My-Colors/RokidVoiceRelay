@@ -78,10 +78,7 @@ class VoiceRelayNotificationListener : NotificationListenerService() {
         )
         PendingMessageStore.setLastCaptured(this, message)
         PendingMessageStore.put(this, message)
-        com.paradisemc.rokid.plugin.voicerelay.aiui.RelayMedia.captureNotificationMedia(this, message)
-
         if (!NotificationDisplayPreferences.nexusNotices(this) ||
-            com.paradisemc.rokid.plugin.voicerelay.aiui.LinkBridgeService.hasActivePage() ||
             !NotificationDisplayPreferences.shouldShowOnGlasses(this)) {
             return
         }
