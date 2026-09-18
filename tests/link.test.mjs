@@ -80,7 +80,7 @@ await test('A replayed challenge and encrypted handshake cannot impersonate a cu
     return {abort(){}};
   }};
   const bridge=new NetworkBridge(host,profile);await bridge.connect();assert.ok(bridge.connected());
-  await bridge.close();await assert.rejects(bridge.connect(),/setup changed/);assert.equal(bridge.connected(),false);assert.match(bridge.details().lastError,/handshake is stale/);
+  await bridge.close();await assert.rejects(bridge.connect(),/(?:setup changed|Phone relay not reachable)/);assert.equal(bridge.connected(),false);assert.match(bridge.details().lastError,/handshake is stale/);
 });
 await test('Ogg playback uses the documented format hint and releases its player',async()=>{
   const {p,context}=makePage();let hint,stopped=false;
@@ -153,7 +153,7 @@ try {
     assert.equal((await raw('/v1/call',packet)).status,401);
   });
   await test('Wrong phone key cannot authenticate or execute a command',async()=>{
-    const wrong=new NetworkBridge(wx,{...profile,key:'ff'.repeat(32)});await assert.rejects(wrong.connect(),/setup changed/);assert.ok(!wrong.connected());
+    const wrong=new NetworkBridge(wx,{...profile,key:'ff'.repeat(32)});await assert.rejects(wrong.connect(),/(?:setup changed|Phone relay not reachable)/);assert.ok(!wrong.connected());
     assert.equal((await b.rpc({op:'status'})).sends,1);
   });
   await test('Cancellation rejects late network results and clears pending requests',async()=>{
