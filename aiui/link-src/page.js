@@ -45,7 +45,7 @@ export default {
   paint() { this.update({ rows: visibleRows(this.menu, this.selection), counter: this.menu.length ? (this.selection + 1) + ' / ' + this.menu.length : '' }); },
   offline() {
     this.update({ connected: false, banner: '' });
-    this.show('offline', 'VOICE LINK 1.0.0', this.bridge.configured() ? 'Wi-Fi edition. Start phone link, then Connect.' : 'On phone: Export glasses setup ZIP. Import that package into AIUI.', [row('connect', 'Connect to phone'), row('help', 'Setup help'), row('runtime', 'Check runtime'), row('diagnostics', 'Connection details')]);
+    this.show('offline', 'VOICE LINK 1.1.0', this.bridge.configured() ? 'Bluetooth-first edition. Keep Hi Rokid connected, then Connect.' : 'On phone: Export glasses setup ZIP. Import that package into AIUI.', [row('connect', 'Connect to phone'), row('help', 'Setup help'), row('runtime', 'Check runtime'), row('diagnostics', 'Connection details')]);
   },
   async run(action, message) {
     if (this.data.busy) return;
@@ -87,8 +87,8 @@ export default {
   connectionDetails(next) {
     if (!next) {
       const d = this.bridge.details(); this.connectionDetailPage = 0;
-      const parts = ['App LINK 1.0.0. ' + (d.version || ''), 'Step: ' + (d.stage || 'Not started'),
-        'Phone: ' + (d.phone || 'Not found'), 'Transport: encrypted local network. No GATT pairing.',
+      const parts = ['App LINK 1.1.0. ' + (d.version || ''), 'Step: ' + (d.stage || 'Not started'),
+        'Phone: ' + (d.phone || 'Not found'), 'Transport: Hi Rokid Bluetooth-backed AIUI request path; LAN fallback. No custom GATT pairing.',
         'Runtime: ' + (d.runtime || 'Use Check runtime to inspect'), 'Last error: ' + (d.lastError || 'None recorded')];
       this.connectionDetailPages = [];
       for (const part of parts) for (let offset = 0; offset < part.length; offset += 130) this.connectionDetailPages.push(part.slice(offset, offset + 130));
@@ -163,7 +163,7 @@ export default {
     const choice = this.menu[this.selection]; if (!choice) return;
     const id = choice.id;
     if (id === 'connect') return this.connect();
-    if (id === 'help') return this.show('help', 'VOICE LINK setup', 'Same Wi-Fi or phone hotspot. Phone: Start link, Export setup ZIP. Import ZIP in AIUI; Package AIX and sync. Open Voice Relay Link.', [row('connect', 'Connect'), row('diagnostics', 'Connection details')]);
+    if (id === 'help') return this.show('help', 'VOICE LINK setup', 'Phone: Start link and Export setup ZIP. Keep Hi Rokid Bluetooth-connected. No shared Wi-Fi is required. Import ZIP in AIUI, Package AIX and sync.', [row('connect', 'Connect'), row('diagnostics', 'Connection details')]);
     if (id === 'diagnostics') return this.connectionDetails(false);
     if (id === 'runtime') return this.runtimeCheck();
     if (id === 'nextDiagnostic') return this.connectionDetails(true);

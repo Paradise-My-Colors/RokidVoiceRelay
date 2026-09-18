@@ -8,7 +8,7 @@ import { gcmsiv } from '../tools/link-build/node_modules/@noble/ciphers/esm/aes.
 import { NetworkBridge, allowedEndpoint } from '../aiui/link-src/network.js';
 import { sessionKey, seal, open, base64, unbase64, unhex } from '../aiui/link-src/secure.js';
 const MASTER='000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f';
-const ENDPOINT='http://10.0.0.1:8766';
+const ENDPOINT='http://127.0.0.1:8766';
 const profile={ key:MASTER, endpoints:[ENDPOINT] };
 let passed=0;
 async function test(name,fn) { await fn(); passed++; console.log('PASS '+name); }
@@ -37,8 +37,8 @@ await test('Base64 handles every tail length and rejects malformed encodings',()
   for(const n of [0,1,2,3,4,257,24576]) { const bytes=Uint8Array.from({length:n},(_,i)=>i%251); assert.equal(base64(bytes),Buffer.from(bytes).toString('base64')); assert.deepEqual(unbase64(base64(bytes)),bytes); }
   assert.throws(()=>unbase64('!!=='));
 });
-await test('Connection profiles accept only private IPv4 endpoints on the link port',()=>{
-  assert.ok(allowedEndpoint(ENDPOINT)); assert.ok(allowedEndpoint('http://192.168.43.1:8766'));
+await test('Connection profiles accept phone loopback first and private IPv4 fallback endpoints only',()=>{
+  assert.ok(allowedEndpoint(ENDPOINT)); assert.ok(allowedEndpoint('http://10.0.0.1:8766')); assert.ok(allowedEndpoint('http://192.168.43.1:8766'));
   for(const v of ['http://example.com:8766','http://8.8.8.8:8766','http://10.0.0.1:80','http://10.0.0.999:8766','http://10.0.0.1:8766/path']) assert.equal(allowedEndpoint(v),false);
 });
 
@@ -55,7 +55,7 @@ function makePage(config=profile) {
 await test('Complete glasses bundle opens without crypto, Bluetooth, audio imports or network access',()=>{
   assert.ok(!/\bcrypto\s*[.(]|navigator\.bluetooth|from ["']audio/.test(script));
   const {p,context}=makePage('__VOICE_RELAY_PHONE_PROFILE__');
-  assert.equal(vm.runInContext('typeof crypto',context),'undefined'); assert.equal(p.data.title,'VOICE LINK 1.0.0');
+  assert.equal(vm.runInContext('typeof crypto',context),'undefined'); assert.equal(p.data.title,'VOICE LINK 1.1.0');
   assert.equal(p.bridge.configured(),false); p.runtimeCheck(); assert.match(p.data.detail,/Network: no/);p.cleanup();
 });
 await test('All new bundle controls and declared page files resolve',()=>{
@@ -123,7 +123,7 @@ const wx={getStorageSync:k=>storage.get(k),setStorageSync:(k,v)=>storage.set(k,v
 }};
 let b;
 try {
-  await test('Actual Java server and AIUI client authenticate without Bluetooth or Web Crypto',async()=>{
+  await test('Actual Java server and AIUI client authenticate through phone loopback without custom GATT or Web Crypto',async()=>{
     b=new NetworkBridge(wx,profile);await b.connect();assert.ok(b.connected());
     const list=await b.rpc({op:'inbox'});assert.equal(list[0].sender,'Alice العربية');
   });

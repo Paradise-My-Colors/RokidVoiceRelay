@@ -1,8 +1,8 @@
-# Voice Relay Link 1.0.0
+# Voice Relay Link 1.1.0
 
 Use the ZIP exported by the updated phone app: **Export glasses setup ZIP**. It already contains your connection settings. Keep that personal ZIP private.
 
-Extract it and import its **voice-relay-link** folder into AIUI Studio as a new project named **Voice Relay Link**. Select **Build & Review → Package AIX**, then Hi Rokid **Settings → Developer → Update glasses resource package**. Open **Voice Relay Link**, not the old Voice Relay agent. The opening screen must say **VOICE LINK 1.0.0**.
+Extract it and import its **voice-relay-link** folder into AIUI Studio as a new project named **Voice Relay Link**. Select **Build & Review → Package AIX**, then Hi Rokid **Settings → Developer → Update glasses resource package**. Open **Voice Relay Link**, not the old Voice Relay agent. The opening screen must say **VOICE LINK 1.1.0**.
 
 Phone and glasses must share Wi-Fi, or connect the glasses to the phone hotspot. Start **Phone link** in the phone app, then choose **Connect to phone** on the glasses. There is no Bluetooth Pair/Approve step. If the phone address changes, export and sync a fresh setup ZIP. Login and notification preferences are retained by an in-place APK update.
 

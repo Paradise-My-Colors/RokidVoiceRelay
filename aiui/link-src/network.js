@@ -8,6 +8,7 @@ export function timeout(work, ms, text) {
 }
 export function allowedEndpoint(value) {
   if (typeof value !== 'string') return false;
+  if (value === 'http://127.0.0.1:8766') return true;
   const m = value.match(/^http:\/\/(\d+)\.(\d+)\.(\d+)\.(\d+):8766$/);
   if (!m) return false;
   const n = m.slice(1).map(Number);
@@ -16,7 +17,7 @@ export function allowedEndpoint(value) {
 export class NetworkBridge {
   constructor(wx, profile) {
     this.wx = wx; this.profile = profile; this.generation = 0; this.tasks = new Set(); this.tail = Promise.resolve();
-    this.diagnostic = { version: 'LINK 1.0.0', stage: 'Ready', lastError: '' };
+    this.diagnostic = { version: 'LINK 1.1.0', stage: 'Ready', lastError: '' };
   }
   configured() { return !!this.profile && typeof this.profile === 'object' && /^[a-f0-9]{64}$/.test(this.profile.key) && Array.isArray(this.profile.endpoints) && this.profile.endpoints.some(allowedEndpoint); }
   remember(patch) { Object.assign(this.diagnostic, patch); try { this.wx.setStorageSync('voice-link-details', this.diagnostic); } catch (_) {} }
@@ -33,7 +34,7 @@ export class NetworkBridge {
         if (error) reject(error); else { try { this.check(generation); resolve(value); } catch (e) { reject(e); } }
       };
       this.tasks.add(lease);
-      timer = setTimeout(() => finish(new Error('Phone did not respond. Check its link status and Wi-Fi.'), null, true), ms);
+      timer = setTimeout(() => finish(new Error('Phone did not respond. Check Voice Relay Link and the Hi Rokid Bluetooth connection.'), null, true), ms);
       try {
         nativeTask = this.wx.request({ url, method: body ? 'POST' : 'GET', header: { 'content-type': 'application/json' },
           data: body ? JSON.stringify(body) : undefined, responseType: 'text', dataType: 'json', timeout: ms,
@@ -63,7 +64,7 @@ export class NetworkBridge {
     let last;
     const endpoints = [...new Set(this.profile.endpoints.filter(allowedEndpoint))].slice(0, 6);
     for (const endpoint of endpoints) {
-      this.check(generation); progress('Finding phone on Wi-Fi…'); this.remember({ stage: 'Network connection', phone: endpoint, lastError: '' });
+      this.check(generation); progress(endpoint.includes('127.0.0.1') ? 'Connecting through Hi Rokid…' : 'Trying network fallback…'); this.remember({ stage: endpoint.includes('127.0.0.1') ? 'Hi Rokid Bluetooth proxy' : 'Network fallback', phone: endpoint, lastError: '' });
       try {
         const challenge = await this.http(endpoint + '/v1/challenge', null, generation, 5000); this.check(generation);
         if (challenge.protocol !== 1 || !/^[a-f0-9]{32}$/.test(challenge.sid)) throw new Error('This address is not Voice Relay Link.');
@@ -76,10 +77,10 @@ export class NetworkBridge {
         if (result.requestHash !== await checksum(unbase64(packet.box))) throw new Error('Phone handshake is stale. Reconnect.');
         this.check(generation);
         if (!result.ok || result.value.protocol !== 1) throw new Error('Update the phone companion to Voice Relay Link 1.0.');
-        this.session = session; this.remember({ stage: 'Connected by Wi-Fi', lastError: '' }); return result.value;
+        this.session = session; this.remember({ stage: endpoint.includes('127.0.0.1') ? 'Connected through Hi Rokid' : 'Connected by network fallback', lastError: '' }); return result.value;
       } catch (e) { this.check(generation); last = e; this.remember({ lastError: errorMessage(e) }); }
     }
-    throw new Error('Phone not reachable or setup changed. Use the same Wi-Fi / phone hotspot. Check Connection details; export a new setup ZIP if the phone address changed.');
+    throw new Error('Phone relay not reachable. Keep the glasses connected to Hi Rokid by Bluetooth. If needed, connect both devices to the same network for the automatic fallback.');
   }
   exclusive(fn) {
     const generation = this.generation;

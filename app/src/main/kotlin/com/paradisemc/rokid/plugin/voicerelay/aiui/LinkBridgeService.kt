@@ -24,7 +24,7 @@ class LinkBridgeService : Service() {
         manager.createNotificationChannel(NotificationChannel("voice-link-network", "Voice Relay Link", NotificationManager.IMPORTANCE_LOW))
         val open = PendingIntent.getActivity(this, 0, Intent(this, AiuiSettingsActivity::class.java), PendingIntent.FLAG_IMMUTABLE)
         startForeground(902, Notification.Builder(this, "voice-link-network").setSmallIcon(android.R.drawable.stat_notify_chat)
-            .setContentTitle("Voice Relay Link running").setContentText("Private connection over Wi-Fi / phone hotspot").setContentIntent(open).setOngoing(true).build())
+            .setContentTitle("Voice Relay Link running").setContentText("Private relay through Hi Rokid / Bluetooth").setContentIntent(open).setOngoing(true).build())
         startLink()
     }
     private fun startLink() {
@@ -61,15 +61,18 @@ object LinkSetup {
         check(p.edit().putString("key", LinkServer.hex(key)).commit()) { "Could not save phone setup" }
         return key
     }
-    fun endpoints(): List<String> = runCatching {
-        NetworkInterface.getNetworkInterfaces().toList().filter { it.isUp && !it.isLoopback &&
-            !it.name.matches(Regex("(?i)(rmnet|ccmni|pdp|tun|ipsec|dummy|lo).*")) }
-            .flatMap { it.inetAddresses.toList() }.filterIsInstance<Inet4Address>()
-            .filter { it.isSiteLocalAddress }.map { "http://${it.hostAddress}:8766" }.distinct().sorted()
-    }.getOrDefault(emptyList())
+    fun endpoints(): List<String> {
+        val fallback = runCatching {
+            NetworkInterface.getNetworkInterfaces().toList().filter { it.isUp && !it.isLoopback &&
+                !it.name.matches(Regex("(?i)(rmnet|ccmni|pdp|tun|ipsec|dummy|lo).*")) }
+                .flatMap { it.inetAddresses.toList() }.filterIsInstance<Inet4Address>()
+                .filter { it.isSiteLocalAddress }.map { "http://${it.hostAddress}:8766" }.distinct().sorted()
+        }.getOrDefault(emptyList())
+        return listOf("http://127.0.0.1:8766") + fallback
+    }
 
     fun export(c: Context, output: java.io.OutputStream) {
-        val addresses = endpoints(); check(addresses.isNotEmpty()) { "Connect the phone to Wi-Fi or enable its hotspot, then export again." }
+        val addresses = endpoints()
         val profile = JSONObject().put("key", LinkServer.hex(key(c))).put("endpoints", JSONArray(addresses)).put("version", 1)
         val prefs = c.getSharedPreferences("voice-link", 0)
         val files = listOf("app.json", "app.js", "AGENTS.md", "README.md", "THIRD_PARTY_LICENSES.txt", "pages/link/home.ink")
@@ -88,10 +91,8 @@ object LinkSetup {
         prefs.edit().putString("exported_addresses", addresses.joinToString("\n")).apply()
     }
     fun networkHint(c: Context): String {
-        val addresses = endpoints()
-        if (addresses.isEmpty()) return "Connect this phone to Wi-Fi or enable its hotspot. Connect the glasses to that same network."
-        val previous = c.getSharedPreferences("voice-link", 0).getString("exported_addresses", null)
-        return addresses.joinToString("\n") + if (previous != null && previous != addresses.joinToString("\n"))
-            "\nPhone address changed. Export a new glasses setup ZIP and sync it." else "\nUse the same Wi-Fi, or connect the glasses to this phone's hotspot."
+        val fallback = endpoints().drop(1)
+        return "Primary relay: Hi Rokid Bluetooth proxy → phone loopback:8766" +
+            if (fallback.isNotEmpty()) "\nOptional LAN fallback: " + fallback.joinToString(", ") else "\nNo LAN fallback detected (not required)."
     }
 }

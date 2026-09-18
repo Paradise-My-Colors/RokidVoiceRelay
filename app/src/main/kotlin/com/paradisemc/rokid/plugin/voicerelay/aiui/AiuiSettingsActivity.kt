@@ -29,23 +29,18 @@ class AiuiSettingsActivity : Activity() {
         fun label(value: String, size: Float = 16f) { content.addView(TextView(this).apply { text = value; textSize = size; setPadding(0, 16, 0, 12) }) }
         fun button(value: String, action: () -> Unit) { content.addView(Button(this).apply { text = value; setOnClickListener { action() } }) }
         label("Voice Relay Link", 27f)
-        label("LINK 1.0.0 · Network edition")
-        label("Connect the glasses and phone to the same Wi-Fi, or connect the glasses to this phone's hotspot. Start the link, then export your ready-to-import glasses package.")
+        label("LINK 1.1.0 · Bluetooth-first edition")
+        label("Keep the glasses connected to Hi Rokid by Bluetooth. Start the link, then export the ready-to-import AIUI package. Shared Wi-Fi is not required.")
         status = TextView(this).apply { textSize = 16f }; content.addView(status)
         button("1. Enable notification access") { startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) }
         button("2. Start phone link") { startLink() }
         button("3. Export glasses setup ZIP") {
-            if (LinkSetup.endpoints().isEmpty()) {
-                AlertDialog.Builder(this).setMessage("Connect the phone to Wi-Fi or enable its hotspot first.").setPositiveButton("OK", null).show()
-            } else {
-                startActivityForResult(Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
-                    addCategory(Intent.CATEGORY_OPENABLE); type = "application/zip"
-                    putExtra(Intent.EXTRA_TITLE, "VoiceRelay-Link-Setup.zip")
-                }, 92)
-            }
+            startActivityForResult(Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
+                addCategory(Intent.CATEGORY_OPENABLE); type = "application/zip"
+                putExtra(Intent.EXTRA_TITLE, "VoiceRelay-Link-Setup.zip")
+            }, 92)
         }
-        label("Save the ZIP, copy it to your computer, extract it and use AIUI Studio Local import. Import the voice-relay-link folder. Package AIX, then update the glasses resource package in Hi Rokid. Open Voice Relay Link: its screen must say LINK 1.0.0. Tap Connect. There is no extra Bluetooth pairing step.")
-        button("Wi-Fi / hotspot settings") { startActivity(Intent(Settings.ACTION_WIRELESS_SETTINGS)) }
+        label("Save the ZIP, copy it to your computer, extract it and use AIUI Studio Local import. Import the voice-relay-link folder. Package AIX, then update the glasses resource package in Hi Rokid. Open Voice Relay Link: its screen must say LINK 1.1.0. Tap Connect. Voice Relay uses Hi Rokid's existing Bluetooth link; there is no extra GATT pairing step.")
         button("Telegram setup / login") { startActivity(Intent(this, TelegramSetupActivity::class.java)) }
         button("Finish reply on phone") { PhoneHandoff.openLatest(this) }
         label("Notification settings", 22f)
@@ -61,7 +56,7 @@ class AiuiSettingsActivity : Activity() {
         label("WhatsApp audio", 22f)
         label("If Listen says audio is unavailable, share the voice message from WhatsApp to Voice Relay AIUI and choose its conversation. When a reply needs phone confirmation, use Finish reply on phone and select the recipient in WhatsApp.")
         button("Connection details") {
-            val details = "Voice Relay Link 1.0.0\n${LinkBridgeService.status}\n${LinkSetup.networkHint(this)}\nTransport: local network, encrypted messages"
+            val details = "Voice Relay Link 1.1.0\n${LinkBridgeService.status}\n${LinkSetup.networkHint(this)}\nTransport: Hi Rokid Bluetooth-backed AIUI request path, encrypted messages; LAN fallback optional"
             AlertDialog.Builder(this).setTitle("Connection details").setMessage(details).setPositiveButton("Copy") { _, _ ->
                 getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("Voice Relay Link", details))
             }.setNegativeButton("Close", null).show()

@@ -60,7 +60,7 @@ public final class LinkServer implements Closeable {
                 catch (RejectedExecutionException e) { sockets.remove(socket); socket.close(); }
             } catch (IOException e) { if (running) state.accept("Network link stopped. Tap Start phone link."); }
         }, "voice-link-listener"); accept.setDaemon(true); accept.start();
-        state.accept("Phone link ready · LINK 1.0.0");
+        state.accept("Phone link ready · LINK 1.1.0");
     }
     public int port() { return listener.getLocalPort(); }
     private String randomHex(int length) { byte[] b = new byte[length]; random.nextBytes(b); return hex(b); }
@@ -109,14 +109,14 @@ public final class LinkServer implements Closeable {
         }
         JSONObject answer;
         if (path.equals("/v1/open")) {
-            answer = new JSONObject().put("ok", true).put("value", new JSONObject().put("protocol", 1).put("build", "LINK 1.0.0"));
+            answer = new JSONObject().put("ok", true).put("value", new JSONObject().put("protocol", 1).put("build", "LINK 1.1.0"));
             state.accept("Private link confirmed. Waiting for Inbox…");
         } else {
             synchronized (commandLock) {
                 synchronized (this) { if (active != session || !running) throw new HttpError(401); }
                 try { answer = commands.execute(query); }
                 catch (Exception e) { answer = new JSONObject().put("ok", false).put("error", "Phone operation failed. Check the phone and delivery receipt."); }
-                if ("inbox".equals(query.optString("op")) && answer.optBoolean("ok")) state.accept("Connected by Wi-Fi · Inbox ready · LINK 1.0.0");
+                if ("inbox".equals(query.optString("op")) && answer.optBoolean("ok")) state.accept("Connected through relay · Inbox ready · LINK 1.1.0");
             }
         }
         answer.put("requestHash", hex(MessageDigest.getInstance("SHA-256").digest(Base64.getDecoder().decode(envelope.getString("box")))));
@@ -145,7 +145,7 @@ public final class LinkServer implements Closeable {
                         if (length < 0 || length > MAX_BODY) throw new HttpError(413);
                     }
                 }
-                if (method.equals("GET") && path.equals("/v1/ping")) result = "{\"app\":\"VoiceRelayLink\",\"protocol\":1,\"build\":\"LINK 1.0.0\"}";
+                if (method.equals("GET") && path.equals("/v1/ping")) result = "{\"app\":\"VoiceRelayLink\",\"protocol\":1,\"build\":\"LINK 1.1.0\"}";
                 else if (method.equals("GET") && path.equals("/v1/challenge")) result = challenge().toString();
                 else if (method.equals("POST") && (path.equals("/v1/open") || path.equals("/v1/call"))) {
                     if (!hasLength || length == 0) throw new HttpError(400);
