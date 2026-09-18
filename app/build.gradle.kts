@@ -7,11 +7,11 @@ android {
     compileSdk = 36
 
     defaultConfig {
-        applicationId = "com.paradisemc.rokid.plugin.voicerelay"
+        applicationId = "com.paradisemc.rokid.plugin.voicerelay.nexus"
         minSdk = 30
         targetSdk = 36
-        versionCode = 10
-        versionName = "1.0.0-nexus"
+        versionCode = 1
+        versionName = "1.0.1-nexus"
     }
 
     providers.environmentVariable("VOICE_RELAY_SIGNING_FILE").orNull?.let { signingFile ->
